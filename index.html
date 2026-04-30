@@ -3180,18 +3180,6 @@
       </div>
     </div>
 
-    <!-- Valor pago ao fornecedor -->
-    <div class="form-grid" style="margin-top:12px">
-      <div class="form-group">
-        <label>Valor Pago ao Fornecedor (R$)</label>
-        <input type="number" id="def_valor_pago" step="0.01" min="0" placeholder="Ex: 85.00">
-      </div>
-      <div class="form-group">
-        <label>Data do Pagamento ao Fornecedor</label>
-        <input type="date" id="def_data_pagamento">
-      </div>
-    </div>
-
     <!-- Dados da NF (preenchidos automaticamente) -->
     <!-- NF automática (quando tem histórico) -->
     <div id="def_nf_info" style="display:none;margin-top:14px">
@@ -3237,6 +3225,14 @@
         <div class="form-group">
           <label>Pedido de Compra</label>
           <input type="text" id="def_manual_ped" placeholder="Ex: 129">
+        </div>
+        <div class="form-group">
+          <label>Valor Pago ao Fornecedor (R$)</label>
+          <input type="number" id="def_valor_pago" step="0.01" min="0" placeholder="Ex: 85.00">
+        </div>
+        <div class="form-group">
+          <label>Data do Pagamento</label>
+          <input type="date" id="def_data_pagamento">
         </div>
       </div>
     </div>
@@ -5589,6 +5585,14 @@ function defAddProduto() {
         <label>Pedido de Compra</label>
         <input type="text" id="def_extra_ped_${idx}" placeholder="Ex: 129" style="width:100%">
       </div>
+      <div class="form-group">
+        <label>Valor Pago ao Fornecedor (R$)</label>
+        <input type="number" id="def_extra_valor_${idx}" step="0.01" min="0" placeholder="Ex: 85.00" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label>Data do Pagamento</label>
+        <input type="date" id="def_extra_datapag_${idx}" style="width:100%">
+      </div>
     </div>
   `;
   container.appendChild(div);
@@ -5684,8 +5688,8 @@ function salvarDefeito() {
         dataCompra: document.getElementById(`def_extra_data_${ei}`)?.value||'',
         pedCompra: document.getElementById(`def_extra_ped_${ei}`)?.value.trim()||'',
         loteId: 0,
-        valorPago: 0,
-        dataPagamento: '',
+        valorPago: parseFloat(document.getElementById(`def_extra_valor_${ei}`)?.value||'0')||0,
+        dataPagamento: document.getElementById(`def_extra_datapag_${ei}`)?.value||'',
         historico: [{data: new Date().toISOString().split('T')[0], status, obs}]
       };
       defeitos.unshift(defExtra);
@@ -5765,6 +5769,8 @@ function editarDefeito(id) {
     document.getElementById('def_obs').value = d.obs || '';
     const vpEl = document.getElementById('def_valor_pago'); if(vpEl) vpEl.value = d.valorPago || '';
     const dpEl = document.getElementById('def_data_pagamento'); if(dpEl) dpEl.value = d.dataPagamento || '';
+    // Mostra seção NF manual ao editar para que valor_pago seja visível
+    const nfManual = document.getElementById('def_nf_manual'); if(nfManual) nfManual.style.display = 'block';
     document.getElementById('def_status').value = d.status || 'a_retirar';
 
     // NF manual fields
