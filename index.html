@@ -3230,10 +3230,7 @@
           <label>Valor Pago ao Fornecedor (R$)</label>
           <input type="number" id="def_valor_pago" step="0.01" min="0" placeholder="Ex: 85.00">
         </div>
-        <div class="form-group">
-          <label>Data do Pagamento</label>
-          <input type="date" id="def_data_pagamento">
-        </div>
+
       </div>
     </div>
 
@@ -5589,10 +5586,7 @@ function defAddProduto() {
         <label>Valor Pago ao Fornecedor (R$)</label>
         <input type="number" id="def_extra_valor_${idx}" step="0.01" min="0" placeholder="Ex: 85.00" style="width:100%">
       </div>
-      <div class="form-group">
-        <label>Data do Pagamento</label>
-        <input type="date" id="def_extra_datapag_${idx}" style="width:100%">
-      </div>
+
     </div>
   `;
   container.appendChild(div);
@@ -5642,7 +5636,7 @@ function salvarDefeito() {
     pedCompra: pedCompraFinal,
     loteId: parseInt(document.getElementById('def_lote_id')?.value||'0')||0,
     valorPago: parseFloat(document.getElementById('def_valor_pago')?.value||'0')||0,
-    dataPagamento: document.getElementById('def_data_pagamento')?.value||'',
+    dataPagamento: '',
     historico: [{data: new Date().toISOString().split('T')[0], status, obs}]
   };
 
@@ -5669,7 +5663,7 @@ function salvarDefeito() {
   
   // Salvar produtos extras do mesmo pedido
   if (!editId) {
-    for (let ei = 1; ei <= _defExtraCount; ei++) {
+    for (let ei = 1; ei <= 20; ei++) {
       const extraDiv = document.getElementById(`def_extra_${ei}`);
       if (!extraDiv) continue;
       const extraSku = document.getElementById(`def_extra_sku_${ei}`)?.value.trim();
@@ -5689,13 +5683,15 @@ function salvarDefeito() {
         pedCompra: document.getElementById(`def_extra_ped_${ei}`)?.value.trim()||'',
         loteId: 0,
         valorPago: parseFloat(document.getElementById(`def_extra_valor_${ei}`)?.value||'0')||0,
-        dataPagamento: document.getElementById(`def_extra_datapag_${ei}`)?.value||'',
+        dataPagamento: '',
         historico: [{data: new Date().toISOString().split('T')[0], status, obs}]
       };
       defeitos.unshift(defExtra);
     }
     _defExtraCount = 0;
     document.getElementById('def_produtos_extras').innerHTML = '';
+    renderDefeitos();
+    renderMetricasDefeitos();
   }
 
   msg.innerHTML='<span style="color:green">✓ ' + (editId ? 'Defeito atualizado!' : 'Defeito registrado!') + '</span>';
