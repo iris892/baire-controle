@@ -3186,7 +3186,7 @@
         <div>
           <label>Data do Pagamento ao Fornecedor</label>
           <input type="date" id="def_data_pagamento" style="width:100%">
-        </div
+        </div>
       </div>
     </div>
 
@@ -5549,9 +5549,9 @@ function defAddProduto() {
   div.id = `def_extra_${idx}`;
   div.style.cssText = 'margin-top:14px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;position:relative';
   div.innerHTML = `
-    <button type="button" onclick="document.getElementById('def_extra_${idx}').remove()" 
+    <button type="button" onclick="document.getElementById('def_extra_${idx}').remove()"
       style="position:absolute;top:8px;right:8px;background:none;border:none;font-size:16px;cursor:pointer;color:#ef4444">✕</button>
-    <div style="font-size:12px;font-weight:600;color:#1a3a5c;margin-bottom:8px">Produto ${idx + 1}</div>
+    <div style="font-size:12px;font-weight:600;color:#1a3a5c;margin-bottom:8px">➕ Produto extra ${idx + 1}</div>
     <div class="form-grid">
       <div class="form-group" style="grid-column:1/-1;position:relative">
         <label>Produto com Defeito (SKU)</label>
@@ -5563,11 +5563,19 @@ function defAddProduto() {
       </div>
       <div class="form-group" style="position:relative">
         <label>Marca</label>
-        <input type="text" id="def_extra_marca_${idx}" placeholder="Ex: MC" style="width:100%">
+        <input type="text" id="def_extra_marca_${idx}" placeholder="Ex: MC" autocomplete="off"
+          oninput="acFilter('def_extra_marca_${idx}','ac_def_extra_marca_${idx}',marcasUnicas(),m=>m,m=>m)"
+          onblur="setTimeout(()=>acHide('ac_def_extra_marca_${idx}'),300)"
+          style="width:100%">
+        <div id="ac_def_extra_marca_${idx}" class="ac-list"></div>
       </div>
-      <div class="form-group">
+      <div class="form-group" style="position:relative">
         <label>Fornecedor</label>
-        <input type="text" id="def_extra_forn_${idx}" placeholder="Ex: TF" style="width:100%">
+        <input type="text" id="def_extra_forn_${idx}" placeholder="Ex: TF" autocomplete="off"
+          oninput="acFilter('def_extra_forn_${idx}','ac_def_extra_forn_${idx}',fornecedoresUnicos(),f=>f,f=>f)"
+          onblur="setTimeout(()=>acHide('ac_def_extra_forn_${idx}'),300)"
+          style="width:100%">
+        <div id="ac_def_extra_forn_${idx}" class="ac-list"></div>
       </div>
       <div class="form-group">
         <label>NF de Compra</label>
