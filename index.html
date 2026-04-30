@@ -3178,15 +3178,17 @@
         <label>Observação</label>
         <input type="text" id="def_obs" placeholder="Ex: toner vazio antes do tempo">
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">
-        <div>
-          <label>Valor Pago ao Fornecedor (R$)</label>
-          <input type="number" id="def_valor_pago" step="0.01" min="0" placeholder="Ex: 85.00" style="width:100%">
-        </div>
-        <div>
-          <label>Data do Pagamento ao Fornecedor</label>
-          <input type="date" id="def_data_pagamento" style="width:100%">
-        </div>
+    </div>
+
+    <!-- Valor pago ao fornecedor -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div class="form-group">
+        <label>Valor Pago ao Fornecedor (R$)</label>
+        <input type="number" id="def_valor_pago" step="0.01" min="0" placeholder="Ex: 85.00" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label>Data do Pagamento ao Fornecedor</label>
+        <input type="date" id="def_data_pagamento" style="width:100%">
       </div>
     </div>
 
@@ -5565,16 +5567,14 @@ function defAddProduto() {
         <label>Marca</label>
         <input type="text" id="def_extra_marca_${idx}" placeholder="Ex: MC" autocomplete="off"
           oninput="acFilter('def_extra_marca_${idx}','ac_def_extra_marca_${idx}',marcasUnicas(),m=>m,m=>m)"
-          onblur="setTimeout(()=>acHide('ac_def_extra_marca_${idx}'),300)"
-          style="width:100%">
+          onblur="setTimeout(()=>acHide('ac_def_extra_marca_${idx}'),300)" style="width:100%">
         <div id="ac_def_extra_marca_${idx}" class="ac-list"></div>
       </div>
       <div class="form-group" style="position:relative">
         <label>Fornecedor</label>
         <input type="text" id="def_extra_forn_${idx}" placeholder="Ex: TF" autocomplete="off"
           oninput="acFilter('def_extra_forn_${idx}','ac_def_extra_forn_${idx}',fornecedoresUnicos(),f=>f,f=>f)"
-          onblur="setTimeout(()=>acHide('ac_def_extra_forn_${idx}'),300)"
-          style="width:100%">
+          onblur="setTimeout(()=>acHide('ac_def_extra_forn_${idx}'),300)" style="width:100%">
         <div id="ac_def_extra_forn_${idx}" class="ac-list"></div>
       </div>
       <div class="form-group">
