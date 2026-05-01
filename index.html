@@ -109,7 +109,13 @@
   .ac-item strong { color:#1a3a5c; }
   .ac-item span { color:#6b7280; font-size:12px; }
   /* Print */
-  @media print { header, .tabs, .card-header button, button { display: none !important; } }
+  @media print {
+    header, .tabs, .card-header button, button { display: none !important; }
+    @page { size: A4 landscape; margin: 8mm; }
+    table { font-size: 9px !important; }
+    th, td { padding: 3px 4px !important; font-size: 9px !important; }
+    body { font-size: 9px !important; }
+  }
 
   .tag-nf { font-size: 11px; color: #6b7280; background: #f3f4f6; border-radius: 4px; padding: 1px 5px; }
   .empty { text-align: center; color: #aaa; padding: 30px; font-size: 13px; }
@@ -3225,6 +3231,10 @@
           <label>Pedido de Compra</label>
           <input type="text" id="def_manual_ped" placeholder="Ex: 129">
         </div>
+        <div class="form-group">
+          <label>Valor Pago ao Fornecedor (R$)</label>
+          <input type="number" id="def_valor_pago" step="0.01" min="0" placeholder="Ex: 85.00">
+        </div>
       </div>
     </div>
 
@@ -3640,7 +3650,23 @@ function populaFiltros() {
 }
 
 
+
+// ============================================================
+// SENHA MASTER PARA EDIÇÃO E EXCLUSÃO
+// ============================================================
+const SENHA_MASTER = 'Iris@1964';
+function verificarSenha(acao) {
+  const senha = prompt(`🔒 Digite a senha para ${acao}:`);
+  if (senha === null) return false;
+  if (senha !== SENHA_MASTER) {
+    alert('❌ Senha incorreta! Acesso negado.');
+    return false;
+  }
+  return true;
+}
+
 function excluirLote(id) {
+  if (!verificarSenha('excluir este lote')) return;
   const lote = nfs.find(n => n.id === id);
   if (!lote) return;
   if (!confirm(`Excluir lote:\n${lote.produto} - NF ${lote.nf}\nFornecedor: ${lote.fornecedor}\n\nAtenção: só exclua se o lote não foi vendido!`)) return;
@@ -3652,6 +3678,7 @@ function excluirLote(id) {
 }
 
 function editEstoque(id) {
+  if (!verificarSenha("editar este lote de estoque")) return;
   const r = nfs.find(n=>n.id===id);
   if (!r) return;
   document.getElementById('edit_produto').value = r.produto || '';
@@ -4012,6 +4039,7 @@ function renderHistorico() {
 let _evItemCount = 0;
 
 function editarVenda(id) {
+  if (!verificarSenha("editar esta venda")) return;
   const v = vendas.find(x=>x.id===id);
   if (!v) return;
   _evItemCount = 0;
@@ -4354,6 +4382,7 @@ function salvarEditVenda() {
   closeModal('modalEditVenda');
 }
 function excluirVenda(id) {
+  if (!verificarSenha('excluir esta venda')) return;
   const venda = vendas.find(v=>v.id===id);
   if (!venda) return;
   if (!confirm(`Excluir venda ${venda.pedido} — ${venda.cliente}?\nO estoque será restaurado automaticamente.`)) return;
@@ -5563,6 +5592,7 @@ function salvarDefeito() {
     dataCompra: dataCompraFinal,
     pedCompra: pedCompraFinal,
     loteId: parseInt(document.getElementById('def_lote_id')?.value||'0')||0,
+    valorPago: parseFloat(document.getElementById('def_valor_pago')?.value||'0')||0,
     historico: [{data: new Date().toISOString().split('T')[0], status, obs}]
   };
 
@@ -5612,6 +5642,7 @@ function salvarDefeito() {
 
 
 function editarDefeito(id) {
+  if (!verificarSenha("editar este defeito")) return;
   const d = defeitos.find(x=>x.id===id);
   if (!d) return;
 
@@ -5656,6 +5687,7 @@ function editarDefeito(id) {
       }
     }
     document.getElementById('def_obs').value = d.obs || '';
+    const vpEl = document.getElementById('def_valor_pago'); if(vpEl) vpEl.value = d.valorPago || '';
     document.getElementById('def_status').value = d.status || 'a_retirar';
 
     // NF manual fields
@@ -5792,6 +5824,7 @@ function statusColor(s) {
 }
 
 function excluirDefeito(id) {
+  if (!verificarSenha('excluir este defeito')) return;
   if (!confirm('Excluir este registro de defeito?')) return;
   defeitos = defeitos.filter(d=>d.id!==id);
   salvarDefeitos(); renderDefeitos(); renderMetricasDefeitos();
