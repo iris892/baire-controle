@@ -129,7 +129,7 @@
   </div>
   <div style="display:flex;align-items:center;gap:8px">
     <span id="dataHoje" style="font-size:12px;opacity:0.8;">sex., 17/04/2026</span>
-    <span id="syncIndicator" style="font-size:11px;opacity:0.7;background:rgba(255,255,255,0.15);padding:3px 8px;border-radius:10px">☁️ Nuvem</span>
+    <button id="syncIndicator" onclick="sincronizarManual()" style="font-size:12px;background:#1d6fa4;color:white;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-weight:600">🔄 Sincronizar</button>
     <button onclick="exportarDados()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:white;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer">💾 Backup</button>
     <label style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:white;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer">
       📂 Restaurar<input type="file" accept=".json" style="display:none" onchange="importarDados(this)">
