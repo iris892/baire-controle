@@ -3314,6 +3314,25 @@
     </div>
   </div>
 </div>
+<!-- Modal Senha Master -->
+<div class="modal-bg" id="modalSenhaMaster">
+  <div class="modal" style="max-width:360px">
+    <button class="modal-close" onclick="cancelarSenhaMaster()">×</button>
+    <h3>🔒 Senha Master</h3>
+    <p style="font-size:13px;color:#64748b;margin-bottom:14px">Digite a senha master para continuar.</p>
+    <div class="form-group">
+      <label>Senha</label>
+      <input type="password" id="inputSenhaMaster" placeholder="Senha master"
+        onkeydown="if(event.key==='Enter') confirmarSenhaMaster()">
+    </div>
+    <div id="senhaErroMsg" style="color:#dc2626;font-size:12px;margin-top:6px;display:none">Senha incorreta. Tente novamente.</div>
+    <div style="margin-top:16px;display:flex;gap:10px">
+      <button class="btn-primary" onclick="confirmarSenhaMaster()">Confirmar</button>
+      <button class="btn-secondary" onclick="cancelarSenhaMaster()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Editar Estoque -->
 <div class="modal-bg" id="modalEdit">
   <div class="modal">
@@ -6481,6 +6500,22 @@ function normalizarVendas() {
     });
   });
   if (alterou) { salvar(); console.log('Vendas normalizadas'); }
+}
+
+// ============================================================
+// SENHA MASTER
+// ============================================================
+const SENHA_MASTER = 'baire2026';
+let _senhaPendente = null; // { resolve, reject, descricao }
+
+function verificarSenha(descricao) {
+  // Verifica de forma síncrona via prompt nativo — compatível com toda a lógica existente
+  // (a função é chamada com if (!verificarSenha(...)) return; portanto precisa retornar bool)
+  const input = prompt(`🔒 Senha Master necessária para:\n"${descricao}"\n\nDigite a senha:`);
+  if (input === null) return false; // cancelou
+  if (input === SENHA_MASTER) return true;
+  alert('❌ Senha incorreta!');
+  return false;
 }
 
 // ============================================================
