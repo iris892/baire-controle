@@ -3676,6 +3676,7 @@ function excluirLote(id) {
 }
 
 function editEstoque(id) {
+  if (!verificarSenha('editar este lote de estoque')) return;
   const r = nfs.find(n=>n.id===id);
   if (!r) return;
   document.getElementById('edit_produto').value = r.produto || '';
@@ -3707,8 +3708,8 @@ function salvarEdit() {
     r.estoque = parseInt(document.getElementById('edit_estoque').value) || 0;
     r.valor = parseFloat(document.getElementById('edit_valor')?.value) || 0;
     r.link = document.getElementById('edit_link')?.value.trim() || '';
+    closeModal('modalEdit');
     salvar(); renderEstoque(); renderMetrics();
-    // Atualizar lotes disponíveis na aba Importar CSV
     document.querySelectorAll('[id^="imp_lotecount_"]').forEach(el => {
       const m = el.id.match(/imp_lotecount_(\d+)_(\d+)/);
       if (m) {
@@ -3718,8 +3719,6 @@ function salvarEdit() {
       }
     });
   }
-  closeModal('modalEdit');
-  renderEstoque();
 }
 
 // ============================================================
