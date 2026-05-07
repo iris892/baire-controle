@@ -3492,15 +3492,26 @@ async function carregarNuvem() {
     const vendasLocal = JSON.parse(localStorage.getItem('toner_vendas') || 'null');
     const defeitosLocal = JSON.parse(localStorage.getItem('toner_defeitos') || 'null');
 
+    // Usa a versão com MAIS registros (local ou nuvem), evitando apagar NFs recém cadastradas
     if (nfsData && nfsData.length > 0) {
-      nfs = nfsData;
+      if (!nfsLocal || nfsData.length >= nfsLocal.length) {
+        nfs = nfsData;
+      } else {
+        nfs = nfsLocal; // local tem mais — mantém e envia pra nuvem
+        await supaSet('nfs', nfs);
+      }
     } else if (nfsLocal && nfsLocal.length > 0) {
       nfs = nfsLocal;
       await supaSet('nfs', nfs); // sobe para nuvem
     }
 
     if (vendasData && vendasData.length > 0) {
-      vendas = vendasData;
+      if (!vendasLocal || vendasData.length >= vendasLocal.length) {
+        vendas = vendasData;
+      } else {
+        vendas = vendasLocal; // local tem mais — mantém e envia pra nuvem
+        await supaSet('vendas', vendas);
+      }
     } else if (vendasLocal && vendasLocal.length > 0) {
       vendas = vendasLocal;
       await supaSet('vendas', vendas);
