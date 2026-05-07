@@ -3719,6 +3719,7 @@ function salvarEdit() {
     });
   }
   closeModal('modalEdit');
+  renderEstoque();
 }
 
 // ============================================================
@@ -3788,7 +3789,7 @@ function salvarNF() {
     const marca = document.getElementById(`nf_marc_${idx}`)?.value.trim();
     const qtd = parseInt(document.getElementById(`nf_qt_${idx}`)?.value) || 0;
     const val = parseFloat(document.getElementById(`nf_val_${idx}`)?.value) || 0;
-    if (produto && marca && qtd > 0) itens.push({produto, marca, qtd, valor: val});
+    if (produto && qtd > 0) itens.push({produto, marca: marca||'', qtd, valor: val});
   });
 
   if (!itens.length) {
@@ -4490,6 +4491,13 @@ function acFilterEstoque(inputId, listId) {
       const p = PRODUTOS_CA.find(x => x.sku.toLowerCase() === sku.toLowerCase());
       const nome = p ? p.nome : '';
       combined.push({ sku, nome, label: nome ? `${sku} — ${nome.substring(0,70)}` : sku });
+    }
+  });
+
+  // Also include ALL products from catalog that are not yet in stock
+  PRODUTOS_CA.forEach(p => {
+    if (!combined.find(c => c.sku.toLowerCase() === p.sku.toLowerCase())) {
+      combined.push({ sku: p.sku, nome: p.nome, label: `${p.sku} — ${p.nome.substring(0,70)}` });
     }
   });
 
