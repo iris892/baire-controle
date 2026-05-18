@@ -6465,19 +6465,38 @@ function importarProdutosCSV(input) {
 // BACKUP E RESTAURAÇÃO
 // ============================================================
 function exportarDados() {
+  let painelMensal = {};
+  let historicoOrcamentos = [];
+  let localStorageFull = {};
+
+  try { painelMensal = JSON.parse(localStorage.getItem('orc_pm') || '{}'); } catch(e) { painelMensal = {}; }
+  try { historicoOrcamentos = Array.isArray(orcHistory) ? orcHistory : JSON.parse(localStorage.getItem('orc_history') || '[]'); } catch(e) { historicoOrcamentos = []; }
+
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      localStorageFull[k] = localStorage.getItem(k);
+    }
+  } catch(e) {}
+
   const dados = {
-    versao: 1,
+    versao: 2,
     data: new Date().toISOString(),
     nfs: nfs,
     vendas: vendas,
     defeitos: defeitos,
-    rascunho: importVendas
+    rascunho: importVendas,
+    painelMensal: painelMensal,
+    historicoOrcamentos: historicoOrcamentos,
+    proximoOrcamento: (typeof orcNum !== 'undefined' ? orcNum : 1),
+    localStorageFull: localStorageFull
   };
+
   const blob = new Blob([JSON.stringify(dados, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `backup_toner_${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `backup_baire_COMPLETO_${new Date().toISOString().split('T')[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -6489,29 +6508,92 @@ function importarDados(input) {
   reader.onload = function(e) {
     try {
       const dados = JSON.parse(e.target.result);
-      if (!dados.versao || !dados.nfs) {
+      if (!dados.versao || (!dados.nfs && !dados.localStorageFull)) {
         alert('Arquivo inválido. Use um backup gerado por este sistema.');
         return;
       }
-      if (!confirm(`Restaurar backup de ${dados.data?.split('T')[0]}?\nIsso vai substituir todos os dados atuais.`)) return;
-      nfs = dados.nfs || [];
-      vendas = dados.vendas || [];
-      defeitos = dados.defeitos || [];
-      importVendas = dados.rascunho || [];
+
+      if (!confirm(`Restaurar backup de ${dados.data?.split('T')[0] || 'data não informada'}?
+Isso vai substituir os dados atuais.`)) return;
+
+      // Restaura primeiro o localStorage completo, quando existir no backup novo.
+      if (dados.localStorageFull && typeof dados.localStorageFull === 'object') {
+        Object.keys(dados.localStorageFull).forEach(k => {
+          try { localStorage.setItem(k, dados.localStorageFull[k]); } catch(e) {}
+        });
+      }
+
+      nfs = dados.nfs || JSON.parse(localStorage.getItem('toner_nfs') || '[]') || [];
+      vendas = dados.vendas || JSON.parse(localStorage.getItem('toner_vendas') || '[]') || [];
+      defeitos = dados.defeitos || JSON.parse(localStorage.getItem('toner_defeitos') || '[]') || [];
+      importVendas = dados.rascunho || JSON.parse(localStorage.getItem('toner_import_rascunho') || '[]') || [];
+
+      // Restaura Painel Mensal e Histórico de Orçamentos.
+      const pmBackup = dados.painelMensal || dados.orc_pm || null;
+      if (pmBackup && typeof pmBackup === 'object') {
+        localStorage.setItem('orc_pm', JSON.stringify(pmBackup));
+        if (typeof pmDados !== 'undefined') pmDados = pmBackup;
+      }
+
+      const histBackup = dados.historicoOrcamentos || dados.orcHistory || null;
+      if (Array.isArray(histBackup)) {
+        orcHistory = histBackup;
+        localStorage.setItem('orc_history', JSON.stringify(orcHistory));
+      } else {
+        try { orcHistory = JSON.parse(localStorage.getItem('orc_history') || '[]'); } catch(e) { orcHistory = []; }
+      }
+
+      if (dados.proximoOrcamento) {
+        orcNum = Number(dados.proximoOrcamento) || 1;
+        localStorage.setItem('orc_num', String(orcNum));
+      }
+      if (typeof orcPersistir === 'function') orcPersistir(); else if (Array.isArray(orcHistory) && orcHistory.length) {
+        const maxNum = Math.max(...orcHistory.map(h => parseInt(h.num,10)||0));
+        orcNum = maxNum + 1;
+        localStorage.setItem('orc_num', String(orcNum));
+      }
+
       salvar();
       salvarDefeitos();
       if (importVendas.length) salvarRascunhoNuvem();
+
       populaFiltros();
       renderMetrics();
       renderEstoque();
       renderMetricasDefeitos();
-      alert('✓ Dados restaurados com sucesso!');
+
+      if (typeof pmBuild === 'function') pmBuild();
+      if (typeof paramAtualizarAuto === 'function') paramAtualizarAuto();
+      if (typeof orcRH === 'function') orcRH();
+      if (typeof orcCalc === 'function') orcCalc();
+
+      if (typeof orcAtualizarNumeroTela === 'function') orcAtualizarNumeroTela();
+
+      alert('✓ Backup completo restaurado com sucesso!');
     } catch(err) {
       alert('Erro ao ler o arquivo: ' + err.message);
     }
   };
   reader.readAsText(file);
   input.value = '';
+}
+
+
+function exportarLocalStorageCompleto() {
+  const dados = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      dados[k] = localStorage.getItem(k);
+    }
+  } catch(e) {}
+  const blob = new Blob([JSON.stringify(dados, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `backup_localstorage_baire_${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ============================================================
@@ -7011,7 +7093,34 @@ function mkI(id,type,val,style,fn){
   return i;
 }
 
+function orcPersistir(){
+  try {
+    if (!Array.isArray(orcHistory)) orcHistory = [];
+    localStorage.setItem('orc_history', JSON.stringify(orcHistory));
+    localStorage.setItem('orc_num', String(orcNum || 1));
+  } catch(e) { console.warn('Não foi possível salvar histórico de orçamentos', e); }
+}
+function orcCarregarEstado(){
+  try {
+    const h = JSON.parse(localStorage.getItem('orc_history') || '[]');
+    orcHistory = Array.isArray(h) ? h : [];
+  } catch(e) { orcHistory = []; }
+  try {
+    const salvoNum = parseInt(localStorage.getItem('orc_num') || '0', 10);
+    const maxHist = orcHistory.length ? Math.max(...orcHistory.map(h => parseInt(h.num,10)||0)) + 1 : 1;
+    orcNum = Math.max(salvoNum || 1, maxHist || 1);
+  } catch(e) { orcNum = 1; }
+  if (!orcNum || orcNum < 1) orcNum = 1;
+}
+function orcAtualizarNumeroTela(){
+  const numero = String(orcNum || 1).padStart(3,'0');
+  const nl=oEl('orc-num-lbl'); if(nl) nl.textContent='Orçamento #'+numero;
+  const pi=oEl('orc-pedido'); if(pi) pi.value=numero;
+}
 function orcInit(){
+  // Carrega histórico e próximo número antes de montar a tela
+  orcCarregarEstado();
+
   // Info bar
   const bar=oEl('orc-info-bar');
   if(bar){
@@ -7022,7 +7131,8 @@ function orcInit(){
       const wrap=document.createElement('div');wrap.style.position='relative';
       const inp=mkI(id,gi===2?'date':'text','','width:100%');
       if(gi===2)inp.value=oH();
-      inp.placeholder=gi===0?'Nome do cliente...':gi===1?'Ex: ORC-001':'';
+      inp.placeholder=gi===0?'Nome do cliente...':gi===1?'Automático':'';
+      if(gi===1){ inp.value=String(orcNum||1).padStart(3,'0'); inp.readOnly=true; inp.style.background='#f8fafc'; }
       if(isCli){
         inp.autocomplete='off';
         inp.addEventListener('input',()=>acFilter('orc-cliente','ac-orccli',CLIENTES,c=>c,c=>c));
@@ -7306,21 +7416,49 @@ function orcSalvar(){
     if(p&&q>0){prods.push(p);tQ+=q;tC+=c*q;tV+=vc*q;}
   }
   if(!prods.length){alert('Adicione pelo menos um produto com quantidade e preço de venda.');return;}
+
+  orcCarregarEstado();
+  const numeroAtual = orcNum || 1;
+  const numTxt = String(numeroAtual).padStart(3,'0');
   const pnf=parseFloat(oEl('oa-pnf')?.value)||0,bol=parseFloat(oEl('oa-bol')?.value)||0,ent=parseFloat(oEl('oa-ent')?.value)||0;
   const nfv=tV*(pnf/100);tVar=nfv+bol+ent;
   const ct2=tC+tVar,lnf=tV-ct2;
   const{score,mk,mg}=orcCA(tC,tV,lnf);
   const cli=oEl('orc-cliente')?.value.trim()||'(sem nome)';
-  const data=(oEl('orc-data-inp')?.value||oH()).split('-').reverse().join('/');
-  const mesKey=new Date().toISOString().slice(0,7);
-  orcHistory.push({num:String(orcNum).padStart(3,'0'),data,mesKey,cli,produtos:prods.join(', '),qtd:tQ,venda:tV,custo:tC,variaveis:tVar,lnf,score,mk,mg});
-  orcNum++;
-  const nl=oEl('orc-num-lbl');if(nl)nl.textContent='Orçamento #'+String(orcNum).padStart(3,'0');
-  alert('✓ Orçamento #'+orcHistory[orcHistory.length-1].num+' de '+cli+' salvo!');
+  const dataISO=oEl('orc-data-inp')?.value||oH();
+  const data=dataISO.split('-').reverse().join('/');
+  const mesKey=dataISO.slice(0,7);
+  const registro={
+    num:numTxt,
+    data,
+    dataISO,
+    mesKey,
+    cli,
+    produtos:prods.join(', '),
+    qtd:tQ,
+    venda:tV,
+    custo:tC,
+    variaveis:tVar,
+    lnf,
+    score,
+    mk,
+    mg
+  };
+  orcHistory.push(registro);
+  orcNum = numeroAtual + 1;
+  orcPersistir();
+  orcAtualizarNumeroTela();
+  if(typeof orcRH==='function')orcRH();
+  if(typeof exportarDados==='function'){
+    // não exporta automaticamente arquivo; apenas garante que o backup manual levará o histórico.
+  }
+  alert('✓ Orçamento #'+numTxt+' de '+cli+' salvo no Histórico!');
+  orcShowTab('ohist');
 }
 function orcNovo(){
   if(!confirm('Novo orçamento? Salve antes se necessário.'))return;
-  ['orc-cliente','orc-pedido'].forEach(id=>{const e=oEl(id);if(e)e.value='';});
+  ['orc-cliente'].forEach(id=>{const e=oEl(id);if(e)e.value='';});
+  orcAtualizarNumeroTela();
   const di=oEl('orc-data-inp');if(di)di.value=oH();
   for(let i=0;i<ORC_ROWS;i++){
     ['os','oc','oq','ovs','ovc'].forEach(f=>{const e=oEl(f+i);if(e)e.value='';});
@@ -7338,16 +7476,28 @@ function orcShowTab(t){
   if(t==='opainel')pmCarregar();
 }
 function orcRH(){
+  // Sempre recarrega do navegador antes de desenhar, para não depender só da memória temporária.
+  try {
+    const h = JSON.parse(localStorage.getItem('orc_history') || '[]');
+    if (Array.isArray(h)) orcHistory = h;
+  } catch(e) {}
   const q=(oEl('orc-busca')?.value||'').toLowerCase();
-  const f=orcHistory.filter(h=>!q||h.cli.toLowerCase().includes(q)||h.data.includes(q));
+  const f=(Array.isArray(orcHistory)?orcHistory:[]).filter(h=>{
+    const cli=(h.cli||'').toLowerCase();
+    const data=(h.data||'');
+    const num=(h.num||'');
+    return !q || cli.includes(q) || data.includes(q) || String(num).includes(q);
+  });
   const ee=oEl('ohist-empty'),ew=oEl('ohist-wrap');
   if(!f.length){if(ee)ee.style.display='block';if(ew)ew.style.display='none';return;}
   if(ee)ee.style.display='none';if(ew)ew.style.display='block';
   const tb=oEl('ohist-body');if(!tb)return;tb.innerHTML='';
-  [...f].reverse().forEach(h=>{
-    const b=[{bg:'#fee2e2',c:'#991b1b',t:'🔒 0/3'},{bg:'#fef3c7',c:'#92400e',t:'⚠️ 1/3'},{bg:'#d1fae5',c:'#065f46',t:'✅ 2/3'},{bg:'#dcfce7',c:'#166534',t:'✅ 3/3'}][h.score];
+  f.slice().reverse().forEach(h=>{
+    const score = Math.max(0, Math.min(3, parseInt(h.score,10)||0));
+    const b=[{bg:'#fee2e2',c:'#991b1b',t:'🔒 0/3'},{bg:'#fef3c7',c:'#92400e',t:'⚠️ 1/3'},{bg:'#d1fae5',c:'#065f46',t:'✅ 2/3'},{bg:'#dcfce7',c:'#166534',t:'✅ 3/3'}][score];
     const tr=document.createElement('tr');
-    tr.innerHTML='<td style="font-weight:600">#'+h.num+'</td><td style="white-space:nowrap">'+h.data+'</td><td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+h.cli+'</td><td style="text-align:right">'+h.qtd+'</td><td style="text-align:right">'+oF(h.custo)+'</td><td style="text-align:right;font-weight:600">'+oF(h.venda)+'</td><td style="text-align:right;font-size:12px">'+oP(h.custo,h.venda)+'</td><td style="text-align:right;color:'+(h.lnf>=0?'#059669':'#dc2626')+';font-weight:600">'+oF(h.lnf)+'</td><td style="text-align:right;font-size:12px;color:'+(h.mg>=0?'#059669':'#dc2626')+'">'+h.mg.toFixed(1)+'%</td><td style="text-align:right;font-size:12px">'+h.mk.toFixed(1)+'%</td><td><span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600;background:'+b.bg+';color:'+b.c+'">'+b.t+'</span></td>';
+    const custo=Number(h.custo)||0, venda=Number(h.venda)||0, lnf=Number(h.lnf)||0, mg=Number(h.mg)||0, mk=Number(h.mk)||0;
+    tr.innerHTML='<td style="font-weight:600">#'+(h.num||'')+'</td><td style="white-space:nowrap">'+(h.data||'')+'</td><td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(h.cli||'')+'</td><td style="text-align:right">'+(h.qtd||0)+'</td><td style="text-align:right">'+oF(custo)+'</td><td style="text-align:right;font-weight:600">'+oF(venda)+'</td><td style="text-align:right;font-size:12px">'+oP(custo,venda)+'</td><td style="text-align:right;color:'+(lnf>=0?'#059669':'#dc2626')+';font-weight:600">'+oF(lnf)+'</td><td style="text-align:right;font-size:12px;color:'+(mg>=0?'#059669':'#dc2626')+'">'+mg.toFixed(1)+'%</td><td style="text-align:right;font-size:12px">'+mk.toFixed(1)+'%</td><td><span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600;background:'+b.bg+';color:'+b.c+'">'+b.t+'</span></td>';
     tb.appendChild(tr);
   });
 }
@@ -7419,6 +7569,24 @@ function pmBuild(){
   paramAtualizarAuto();
 }
 
+function pmAutoSalvar(){
+  try{
+    const atual = {};
+    ORC_MESES.forEach((_,mi)=>{
+      const mk='2026-'+(mi+1), d={};
+      PM_ALL.forEach(f=>{
+        const e=oEl('pm_'+mk+'_'+f);
+        if(e && e.value !== '' && !isNaN(parseFloat(e.value))) d[f]=parseFloat(e.value)||0;
+      });
+      // Mantém mês salvo anteriormente se a tela não tiver nenhum campo preenchido
+      if(Object.keys(d).length>0) atual[mk]=d;
+      else if(pmDados && pmDados[mk]) atual[mk]=pmDados[mk];
+    });
+    pmDados = atual;
+    localStorage.setItem('orc_pm', JSON.stringify(pmDados));
+  }catch(e){}
+}
+
 function pmGV(mk,f){
   const e=oEl('pm_'+mk+'_'+f);
   return e?parseFloat(e.value)||0:0;
@@ -7470,6 +7638,7 @@ function pmCalcLinha(mk){
   pmTotais();
   pmResumo();
   paramAtualizarAuto();
+  pmAutoSalvar();
   orcCalc();
 }
 
@@ -7613,17 +7782,91 @@ function pmCarregar(){
 }
 
 function pmSalvar(){
-  ORC_MESES.forEach((_,mi)=>{
-    const mk='2026-'+(mi+1),d={};
-    PM_ALL.forEach(f=>{const v=pmGV(mk,f);if(v>0)d[f]=v;});
-    pmDados[mk]=d;
-  });
-  localStorage.setItem('orc_pm',JSON.stringify(pmDados));
-  paramAtualizarAuto();orcCalc();
+  pmAutoSalvar();
+  paramAtualizarAuto();
+  orcCalc();
   alert('✓ Histórico mensal salvo!');
 }
 
 setTimeout(orcInit,800);
+</script>
+
+<script>
+// ===== ABRIR ORÇAMENTO DO HISTÓRICO =====
+function abrirOrcamentoHistorico(idx){
+  try{
+    const orc = (orcHistory||[])[idx];
+    if(!orc){
+      alert('Orçamento não encontrado.');
+      return;
+    }
+
+    if(confirm('Deseja abrir este orçamento no formulário para edição/visualização?')){
+      localStorage.setItem('orcamento_aberto_temp', JSON.stringify(orc));
+
+      // tentativa de recarregar campos mais comuns
+      Object.keys(orc).forEach(k=>{
+        const el = document.getElementById(k);
+        if(el){
+          try{ el.value = orc[k]; }catch(e){}
+        }
+      });
+
+      if(typeof showPage === 'function'){
+        try{ showPage('orcamento'); }catch(e){}
+      }
+
+      alert('Orçamento carregado.');
+    }
+  }catch(e){
+    console.error(e);
+    alert('Erro ao abrir orçamento.');
+  }
+}
+</script>
+
+<script>
+function excluirOrcamento(idx){
+  try{
+    let hist = JSON.parse(localStorage.getItem('orc_history') || '[]');
+    if(!confirm('Excluir este orçamento?')) return;
+    hist.splice(idx,1);
+    localStorage.setItem('orc_history', JSON.stringify(hist));
+    alert('Orçamento excluído com sucesso.');
+    location.reload();
+  }catch(e){
+    console.error(e);
+    alert('Erro ao excluir orçamento.');
+  }
+}
+
+function abrirOrcamentoHistorico(idx){
+  try{
+    let hist = JSON.parse(localStorage.getItem('orc_history') || '[]');
+    let orc = hist[idx];
+
+    if(!orc){
+      alert('Orçamento não encontrado.');
+      return;
+    }
+
+    localStorage.setItem('orcamento_em_edicao', JSON.stringify(orc));
+
+    Object.keys(orc).forEach(k=>{
+      let el = document.getElementById(k);
+      if(el){
+        try{
+          el.value = orc[k];
+        }catch(e){}
+      }
+    });
+
+    alert('Orçamento carregado para análise.');
+  }catch(e){
+    console.error(e);
+    alert('Erro ao abrir orçamento.');
+  }
+}
 </script>
 
 </body></html>
