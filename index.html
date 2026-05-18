@@ -3451,12 +3451,63 @@ async function supaSet(id, conteudo) {
   } catch(e) { console.warn('Supabase sync error:', e); }
 }
 
+function orcDadosParaNuvem(){
+  let hist = [];
+  let pm = {};
+  let num = 1;
+  try { hist = Array.isArray(orcHistory) ? orcHistory : JSON.parse(localStorage.getItem('orc_history') || '[]'); } catch(e) { hist = []; }
+  try { pm = JSON.parse(localStorage.getItem('orc_pm') || '{}'); } catch(e) { pm = {}; }
+  try { num = Number(typeof orcNum !== 'undefined' ? orcNum : localStorage.getItem('orc_num')) || 1; } catch(e) { num = 1; }
+  return { hist, pm, num };
+}
+
+function orcMergeHistorico(localHist, cloudHist){
+  const map = new Map();
+  const add = h => {
+    if(!h || typeof h !== 'object') return;
+    const key = [h.num || '', h.dataISO || h.data || '', h.cli || '', h.venda || '', h.qtd || ''].join('|');
+    map.set(key, h);
+  };
+  (Array.isArray(cloudHist) ? cloudHist : []).forEach(add);
+  (Array.isArray(localHist) ? localHist : []).forEach(add);
+  return Array.from(map.values()).sort((a,b)=>{
+    const da = a.dataISO || (a.data ? a.data.split('/').reverse().join('-') : '');
+    const db = b.dataISO || (b.data ? b.data.split('/').reverse().join('-') : '');
+    if(da !== db) return db.localeCompare(da);
+    return (parseInt(b.num,10)||0) - (parseInt(a.num,10)||0);
+  });
+}
+
+function orcMergePainel(localPm, cloudPm){
+  const out = Object.assign({}, cloudPm || {});
+  Object.keys(localPm || {}).forEach(mk=>{
+    const l = localPm[mk] || {};
+    const c = out[mk] || {};
+    const lf = Object.keys(l).filter(k=>l[k] !== '' && l[k] !== null && l[k] !== undefined).length;
+    const cf = Object.keys(c).filter(k=>c[k] !== '' && c[k] !== null && c[k] !== undefined).length;
+    // Mantém o mês que tem mais campos preenchidos. Se empatar, preserva o local para não perder digitação recente.
+    out[mk] = lf >= cf ? Object.assign({}, c, l) : Object.assign({}, l, c);
+  });
+  return out;
+}
+
+let _orcCloudTimer = null;
+function orcSalvarNuvemDebounced(){
+  if (window.location.protocol === 'file:') return;
+  clearTimeout(_orcCloudTimer);
+  _orcCloudTimer = setTimeout(()=>{ salvarNuvem().catch(()=>{}); }, 700);
+}
+
 async function salvarNuvem() {
   if (window.location.protocol === 'file:') return;
+  const od = orcDadosParaNuvem();
   await supaSet('nfs', nfs);
   await supaSet('vendas', vendas);
   await supaSet('defeitos', defeitos);
   await supaSet('rascunho', importVendas);
+  await supaSet('orc_history', od.hist);
+  await supaSet('orc_pm', od.pm);
+  await supaSet('orc_num', od.num);
 }
 
 async function sincronizarManual() {
@@ -3471,6 +3522,11 @@ async function sincronizarManual() {
       renderDefeitos();
       renderMetrics();
       renderEstoque();
+      if (typeof pmBuild === 'function') pmBuild();
+      if (typeof paramAtualizarAuto === 'function') paramAtualizarAuto();
+      if (typeof orcRH === 'function') orcRH();
+      if (typeof orcAtualizarNumeroTela === 'function') orcAtualizarNumeroTela();
+      if (typeof orcCalc === 'function') orcCalc();
       if (importVendas.length) renderImportPreview(importVendas);
       btn.textContent = '✅ Sincronizado!';
       setTimeout(() => { btn.textContent = '☁️ Nuvem'; }, 2000);
@@ -3495,8 +3551,11 @@ async function carregarNuvem() {
   try {
     // Timeout de 5 segundos para não travar o sistema
     const timeout = new Promise((_,reject) => setTimeout(()=>reject(new Error('timeout')), 5000));
-    const [nfsData, vendasData, defeitosData, rascunhoData, produtosData] = await Promise.race([
-      Promise.all([supaGet('nfs'), supaGet('vendas'), supaGet('defeitos'), supaGet('rascunho'), supaGet('produtos_ca')]),
+    const [nfsData, vendasData, defeitosData, rascunhoData, produtosData, orcHistData, orcPmData, orcNumData] = await Promise.race([
+      Promise.all([
+        supaGet('nfs'), supaGet('vendas'), supaGet('defeitos'), supaGet('rascunho'), supaGet('produtos_ca'),
+        supaGet('orc_history'), supaGet('orc_pm'), supaGet('orc_num')
+      ]),
       timeout.then(()=>{ throw new Error('timeout'); })
     ]);
     if (produtosData && produtosData.length > 0) {
@@ -3515,6 +3574,12 @@ async function carregarNuvem() {
     const nfsLocal = JSON.parse(localStorage.getItem('toner_nfs') || 'null');
     const vendasLocal = JSON.parse(localStorage.getItem('toner_vendas') || 'null');
     const defeitosLocal = JSON.parse(localStorage.getItem('toner_defeitos') || 'null');
+    let orcHistLocal = [];
+    let orcPmLocal = {};
+    let orcNumLocal = 1;
+    try { orcHistLocal = JSON.parse(localStorage.getItem('orc_history') || '[]'); } catch(e) { orcHistLocal = []; }
+    try { orcPmLocal = JSON.parse(localStorage.getItem('orc_pm') || '{}'); } catch(e) { orcPmLocal = {}; }
+    try { orcNumLocal = Number(localStorage.getItem('orc_num') || 1) || 1; } catch(e) { orcNumLocal = 1; }
 
     // Usa a versão com MAIS registros (local ou nuvem), evitando apagar NFs recém cadastradas
     if (nfsData && nfsData.length > 0) {
@@ -3573,10 +3638,36 @@ async function carregarNuvem() {
       localStorage.removeItem('toner_rascunho_limpo');
     }
 
+    // Sincroniza a aba Orçamento: Histórico, Painel Mensal e próximo número.
+    const histCloud = Array.isArray(orcHistData) ? orcHistData : [];
+    const histLocal = Array.isArray(orcHistLocal) ? orcHistLocal : [];
+    const histMerge = orcMergeHistorico(histLocal, histCloud);
+    if (histMerge.length) {
+      orcHistory = histMerge;
+      localStorage.setItem('orc_history', JSON.stringify(orcHistory));
+      await supaSet('orc_history', orcHistory).catch(()=>{});
+    }
+
+    const pmCloud = (orcPmData && typeof orcPmData === 'object' && !Array.isArray(orcPmData)) ? orcPmData : {};
+    const pmMerge = orcMergePainel(orcPmLocal, pmCloud);
+    if (Object.keys(pmMerge).length) {
+      if (typeof pmDados !== 'undefined') pmDados = pmMerge;
+      localStorage.setItem('orc_pm', JSON.stringify(pmMerge));
+      await supaSet('orc_pm', pmMerge).catch(()=>{});
+    }
+
+    const maxHistNum = histMerge.length ? Math.max(...histMerge.map(h => parseInt(h.num,10)||0)) + 1 : 1;
+    const numCloud = Number(orcNumData || 1) || 1;
+    orcNum = Math.max(orcNumLocal || 1, numCloud || 1, maxHistNum || 1);
+    localStorage.setItem('orc_num', String(orcNum));
+    await supaSet('orc_num', orcNum).catch(()=>{});
+
     // Salva tudo no localStorage como fallback
     localStorage.setItem('toner_nfs', JSON.stringify(nfs));
     localStorage.setItem('toner_vendas', JSON.stringify(vendas));
     localStorage.setItem('toner_defeitos', JSON.stringify(defeitos));
+    localStorage.setItem('orc_history', JSON.stringify(Array.isArray(orcHistory) ? orcHistory : []));
+    localStorage.setItem('orc_num', String(typeof orcNum !== 'undefined' ? orcNum : 1));
 
     if (indicator) indicator.textContent = '☁️ Nuvem';
     return true;
@@ -7098,6 +7189,7 @@ function orcPersistir(){
     if (!Array.isArray(orcHistory)) orcHistory = [];
     localStorage.setItem('orc_history', JSON.stringify(orcHistory));
     localStorage.setItem('orc_num', String(orcNum || 1));
+    orcSalvarNuvemDebounced();
   } catch(e) { console.warn('Não foi possível salvar histórico de orçamentos', e); }
 }
 function orcCarregarEstado(){
@@ -7584,6 +7676,7 @@ function pmAutoSalvar(){
     });
     pmDados = atual;
     localStorage.setItem('orc_pm', JSON.stringify(pmDados));
+    orcSalvarNuvemDebounced();
   }catch(e){}
 }
 
