@@ -6884,10 +6884,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 #page-orcamento #onovo .orc-tbl th{padding:8px 7px;font-size:11px;line-height:1.15;color:#0f2f50;background:#f8fafc}
 #page-orcamento #onovo .orc-tbl td{padding:6px 7px}
 #page-orcamento #onovo .orc-tbl input{font-size:12px!important;padding:6px 7px!important;border-radius:7px!important}
+#page-orcamento #onovo .orc-tbl td:nth-child(4) input{width:72px!important;min-width:72px!important;height:34px!important;font-size:14px!important;text-align:center!important;padding:6px 8px!important;}
+#page-orcamento #onovo .orc-tbl th:nth-child(4){width:88px!important;min-width:88px!important;text-align:center!important;}
 #page-orcamento #onovo .orc-tbl th:nth-child(1),#page-orcamento #onovo .orc-tbl td:nth-child(1){width:32px;text-align:center}
 #page-orcamento #onovo .orc-tbl th:nth-child(2),#page-orcamento #onovo .orc-tbl td:nth-child(2){width:170px}
 #page-orcamento #onovo .orc-tbl th:nth-child(3),#page-orcamento #onovo .orc-tbl td:nth-child(3){width:105px}
-#page-orcamento #onovo .orc-tbl th:nth-child(4),#page-orcamento #onovo .orc-tbl td:nth-child(4){width:58px}
+#page-orcamento #onovo .orc-tbl th:nth-child(4),#page-orcamento #onovo .orc-tbl td:nth-child(4){width:88px!important;min-width:88px!important}
 #page-orcamento #onovo .orc-tbl th:nth-child(5),#page-orcamento #onovo .orc-tbl td:nth-child(5){width:100px;text-align:right}
 #page-orcamento #onovo .orc-tbl th:nth-child(6),#page-orcamento #onovo .orc-tbl td:nth-child(6){display:none}
 #page-orcamento #onovo .orc-tbl th:nth-child(7),#page-orcamento #onovo .orc-tbl td:nth-child(7){width:112px}
@@ -6952,7 +6954,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
             <th style="width:24px">#</th>
             <th style="width:220px">Produto</th>
             <th style="width:96px;text-align:right">Custo unit.<br><span style="font-size:9px;font-weight:400;color:#059669">última compra</span></th>
-            <th style="width:52px;text-align:right">Qtd</th>
+            <th style="width:88px!important;text-align:center">Qtd</th>
             <th style="width:86px;text-align:right">Custo total</th>
             <th style="width:52px;text-align:right">% custo</th>
             <th style="width:92px;text-align:right">Venda suger.</th>
@@ -7100,9 +7102,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     <div class="pm-intel-head">
       <div>
         <h3>📊 Painel financeiro inteligente</h3>
-        <p>Percentual do faturamento consumido por toner, NF, motoboy e custo operacional direto. Ajuda a encontrar o teto saudável de custo para proteger sua retirada.</p>
+        <p>Aprovação por sobra operacional: mínimo R$ 70 / ideal R$ 110 por venda; mínimo R$ 25 / ideal R$ 37 por toner. Percentuais de custo ficam apenas como apoio.</p>
       </div>
-      <span class="pm-pill pm-blue">Meta retirada: R$ 18.000</span>
+      <span class="pm-pill pm-blue">Regra: sobra operacional</span>
     </div>
     <div style="overflow-x:auto">
       <table class="pm-intel-tbl">
@@ -7115,7 +7117,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
             <th>% Motoboy</th>
             <th>% Boleto</th>
             <th>% Operacional<br>Direto</th>
-            <th>% Margem</th>
+            <th>Sobra/Venda</th>
+            <th>Sobra/Toner</th>
             <th>Resultado</th>
             <th>Status</th>
           </tr>
@@ -7139,22 +7142,22 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 <!-- ===== PARÂMETROS ===== -->
 <div class="orc-subpage" id="oparam">
   <div class="param-card">
-    <h3 style="font-size:14px;font-weight:600;color:#1a3a5c;margin-bottom:8px;margin-top:0">Bases de aprovação financeira inteligente</h3>
-    <p style="font-size:13px;color:#64748b;margin-bottom:8px">A aprovação agora protege o cenário saudável da empresa: margem, lucro real, toner, NF e entrega. Os parâmetros se ajustam automaticamente conforme novos meses saudáveis forem digitados no Painel Mensal.</p>
-    <div class="param-auto-note">🔒 Automático: usa a média dos meses saudáveis do Painel Mensal, ou seja, meses em que o resultado final alcançou a retirada/meta. Assim o sistema não aprende com mês ruim.</div>
-    <div class="param-row"><div class="pnum">1</div><div class="pdesc">Margem operacional mínima saudável</div><div id="pp1-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
-    <div class="param-row"><div class="pnum">2</div><div class="pdesc">Lucro mínimo por pedido</div><div id="pp2-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
-    <div class="param-row"><div class="pnum">3</div><div class="pdesc">Teto saudável de toner sobre a venda</div><div id="pp3-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
-    <div class="param-row"><div class="pnum">4</div><div class="pdesc">Teto saudável de NF sobre a venda</div><div id="pp4-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
-    <div class="param-row"><div class="pnum">5</div><div class="pdesc">Teto saudável de entrega/motoboy sobre a venda</div><div id="pp5-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
+    <h3 style="font-size:14px;font-weight:600;color:#1a3a5c;margin-bottom:8px;margin-top:0">Bases de aprovação por sobra operacional</h3>
+    <p style="font-size:13px;color:#64748b;margin-bottom:8px">A aprovação agora protege a retirada mínima pela sobra operacional: primeiro avalia o lucro por venda; se a venda for pequena, faz a segunda análise pelo lucro por toner.</p>
+    <div class="param-auto-note">🔒 Parâmetros de teste definidos pela análise: lucro por venda mínimo R$ 70, ideal R$ 110; lucro por toner mínimo R$ 25, ideal R$ 37.</div>
+    <div class="param-row"><div class="pnum">1</div><div class="pdesc">Lucro mínimo por venda</div><div id="pp1-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
+    <div class="param-row"><div class="pnum">2</div><div class="pdesc">Lucro ideal por venda</div><div id="pp2-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
+    <div class="param-row"><div class="pnum">3</div><div class="pdesc">Lucro mínimo por toner</div><div id="pp3-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
+    <div class="param-row"><div class="pnum">4</div><div class="pdesc">Lucro ideal por toner</div><div id="pp4-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
+    <div class="param-row"><div class="pnum">5</div><div class="pdesc">Observação</div><div id="pp5-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
   </div>
   <div class="param-card">
     <h3 style="font-size:14px;font-weight:600;color:#1a3a5c;margin-bottom:14px;margin-top:0">Legenda</h3>
     <div style="display:flex;flex-direction:column;gap:8px">
-      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#dcfce7;border:1px solid #86efac"><span style="font-size:13px;font-weight:600;color:#166534;min-width:140px">🔵 Excelente (5/5)</span><span style="font-size:13px;color:#166534">Todas as bases saudáveis — padrão ideal</span></div>
-      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#d1fae5;border:1px solid #6ee7b7"><span style="font-size:13px;font-weight:600;color:#065f46;min-width:140px">✅ Aprovado (4/5)</span><span style="font-size:13px;color:#065f46">Venda saudável, com até um ponto de atenção</span></div>
-      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#fef3c7;border:1px solid #fcd34d"><span style="font-size:13px;font-weight:600;color:#92400e;min-width:140px">⚠️ Atenção (3/5)</span><span style="font-size:13px;color:#92400e">Venda exige análise antes de aprovar</span></div>
-      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#fee2e2;border:1px solid #fca5a5"><span style="font-size:13px;font-weight:600;color:#991b1b;min-width:140px">🔒 Risco</span><span style="font-size:13px;color:#991b1b">Venda prejudica a meta/retirada</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#dcfce7;border:1px solid #86efac"><span style="font-size:13px;font-weight:600;color:#166534;min-width:140px">🔵 Excelente (5/5)</span><span style="font-size:13px;color:#166534">Lucro por venda acima do ideal</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#d1fae5;border:1px solid #6ee7b7"><span style="font-size:13px;font-weight:600;color:#065f46;min-width:140px">✅ Aprovado (4/5)</span><span style="font-size:13px;color:#065f46">Aprovação pela sobra operacional</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#fef3c7;border:1px solid #fcd34d"><span style="font-size:13px;font-weight:600;color:#92400e;min-width:140px">⚠️ Atenção (3/5)</span><span style="font-size:13px;color:#92400e">Venda depende da análise por toner</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#fee2e2;border:1px solid #fca5a5"><span style="font-size:13px;font-weight:600;color:#991b1b;min-width:140px">🔒 Risco</span><span style="font-size:13px;color:#991b1b">Lucro insuficiente para o padrão mínimo</span></div>
     </div>
   </div>
 </div>
@@ -7382,39 +7385,52 @@ function pmMetricasBase(){
   };
 }
 function paramAtualizarAuto(){
-  const b=pmMetricasBase();
-  const vals=b||{p1:24,p2:80,p3:30,p4:7,p5:3,meses:0,fonte:'sem dados no painel'};
+  const cfg = BAIRE_APROV;
+  const fonte='parâmetro fixo da análise Baire';
   const set=(id,v,dec,txt)=>{
     const e=oEl(id);if(e)e.value=(Math.max(0,v)||0).toFixed(dec);
     const s=oEl(id+'-src');if(s)s.textContent=txt;
   };
-  const fonte=b?(b.fonte+' — '+b.meses+' mês(es) usado(s)'):'sem dados no painel';
-  set('pp1',vals.p1,1,fonte);
-  set('pp2',vals.p2,2,fonte);
-  set('pp3',vals.p3,1,fonte);
-  set('pp4',vals.p4,1,fonte);
-  set('pp5',vals.p5,1,fonte);
+  set('pp1',cfg.lucroVendaMin,2,fonte);
+  set('pp2',cfg.lucroVendaIdeal,2,fonte);
+  set('pp3',cfg.lucroTonerMin,2,fonte);
+  set('pp4',cfg.lucroTonerIdeal,2,fonte);
+  set('pp5',0,0,'sem uso nesta versão');
 }
 function orcGP(){paramAtualizarAuto();return{
-  p1:parseFloat(oEl('pp1')?.value)||0,
-  p2:parseFloat(oEl('pp2')?.value)||0,
-  p3:parseFloat(oEl('pp3')?.value)||0,
-  p4:parseFloat(oEl('pp4')?.value)||0,
-  p5:parseFloat(oEl('pp5')?.value)||0
+  p1:23.8,
+  p2:70,
+  p3:33.5,
+  p4:999,
+  p5:999,
+  lucroVendaMin:parseFloat(oEl('pp1')?.value)||70,
+  lucroVendaIdeal:parseFloat(oEl('pp2')?.value)||110,
+  lucroTonerMin:parseFloat(oEl('pp3')?.value)||25,
+  lucroTonerIdeal:parseFloat(oEl('pp4')?.value)||37
 };}
-function orcGrade(score){return score>=5?3:score>=4?2:score>=3?1:0;}
-function orcCA(tC,tV,ln,nfv,ent){
-  const{p1,p2,p3,p4,p5}=orcGP();
+function orcGrade(score){return score>=3?3:score>=2?2:score>=1?1:0;}
+
+const BAIRE_APROV = { lucroVendaMin:70, lucroVendaIdeal:110, lucroTonerMin:25, lucroTonerIdeal:37 };
+
+function orcCA(tC,tV,ln,nfv,ent,qtd){
+  const p=orcGP();
   const mg=tV>0?ln/tV*100:0;
   const tonerPct=tV>0?tC/tV*100:0;
   const nfPct=tV>0?nfv/tV*100:0;
   const entPct=tV>0?ent/tV*100:0;
-  const i1=mg>=p1;
-  const i2=ln>=p2;
-  const i3=tonerPct<=p3;
-  const i4=(nfv<=0)||nfPct<=p4;
-  const i5=(ent<=0)||entPct<=p5;
-  return{score:(i1?1:0)+(i2?1:0)+(i3?1:0)+(i4?1:0)+(i5?1:0),grade:orcGrade((i1?1:0)+(i2?1:0)+(i3?1:0)+(i4?1:0)+(i5?1:0)),i1,i2,i3,i4,i5,mg,tonerPct,nfPct,entPct};
+  const lucroVenda=ln;
+  const lucroToner=(qtd&&qtd>0)?ln/qtd:0;
+  let grade=0,score=0,status='RISCO',motivo='Lucro por venda abaixo de R$ '+p.lucroVendaMin.toFixed(2).replace('.',',')+' e lucro por toner abaixo de R$ '+p.lucroTonerMin.toFixed(2).replace('.',',');
+  if(lucroVenda>=p.lucroVendaIdeal){grade=3;score=3;status='EXCELENTE';motivo='Lucro por venda acima do ideal de R$ '+p.lucroVendaIdeal.toFixed(2).replace('.',',');}
+  else if(lucroVenda>=p.lucroVendaMin){grade=2;score=2;status='APROVADO';motivo='Lucro por venda acima do mínimo de R$ '+p.lucroVendaMin.toFixed(2).replace('.',',');}
+  else if(lucroToner>=p.lucroTonerIdeal){grade=2;score=2;status='APROVADO';motivo='Venda pequena, mas saudável por toner: acima de R$ '+p.lucroTonerIdeal.toFixed(2).replace('.',',');}
+  else if(lucroToner>=p.lucroTonerMin){grade=1;score=1;status='ATENÇÃO';motivo='Lucro por venda baixo; lucro por toner está na faixa de atenção.';}
+  return{score,grade,status,motivo,mg,tonerPct,nfPct,entPct,lucroVenda,lucroToner,
+    i1:lucroVenda>=p.lucroVendaMin,
+    i2:lucroVenda>=p.lucroVendaIdeal,
+    i3:lucroToner>=p.lucroTonerMin,
+    i4:lucroToner>=p.lucroTonerIdeal,
+    i5:true};
 }
 function orcCalc(){
   let tQ=0,tC=0,tV=0;
@@ -7428,17 +7444,17 @@ function orcCalc(){
   }
   const parsSug=orcGP();
   const fixoUnit=(bol+ent)/(tQ||1);
-  const denMarg=1-(pnf/100)-(parsSug.p2/100);
   const denNF=1-(pnf/100);
   for(let i=0;i<ORC_ROWS;i++){
     const c=parseFloat(oEl('oc'+i)?.value)||0,q=parseFloat(oEl('oq'+i)?.value)||0;
     const sugEl=oEl('ovs'+i);
     if(sugEl){
       if(c>0&&q>0){
-        const porMargem=denMarg>0?(c+fixoUnit)/denMarg:0;
-        const porLucro=denNF>0?(c+fixoUnit+(parsSug.p2/(tQ||1)))/denNF:0;
-        const porToner=parsSug.p3>0?c/(parsSug.p3/100):0;
-        const sug=Math.max(porMargem,porLucro,porToner,0);
+        // Sugestão nova: proteger sobra operacional.
+        // Por toner: mínimo R$ 25 / ideal R$ 37.
+        // Por venda: mínimo R$ 70 / ideal R$ 110, rateado na quantidade.
+        const lucroUnitMin=Math.max(parsSug.lucroTonerMin, parsSug.lucroVendaMin/(tQ||1));
+        const sug=denNF>0?(c+fixoUnit+lucroUnitMin)/denNF:0;
         sugEl.value=sug?Math.ceil(sug*100)/100:'';
       }else sugEl.value='';
     }
@@ -7461,39 +7477,39 @@ function orcCalc(){
   const sc=(id,pid,v,t)=>{const e=oEl(id);if(e){e.style.color=v>=0?'#059669':'#dc2626';e.textContent=oF(v);}const pe=oEl(pid);if(pe)pe.textContent=oP(v,t);};
   sc('oa-lnf','oa-lnfp',lnf,tV);sc('oa-lsn','oa-lsnp',lsn,tV);
   oSV('ot-marg',tV>0?mg.toFixed(1)+'%':'—');
-  const mm=oEl('om-marg');if(mm){mm.textContent=tV>0?mg.toFixed(1)+'%':'—';mm.style.color=mg>=parsSug.p2?'#059669':'#dc2626';}
-  const mmin=oEl('om-marg-min');if(mmin)mmin.textContent='mínimo: '+Number(parsSug.p1).toFixed(1)+'%';
+  const mm=oEl('om-marg');if(mm){mm.textContent=tV>0?mg.toFixed(1)+'%':'—';mm.style.color=mg>=0?'#059669':'#dc2626';}
+  const mmin=oEl('om-marg-min');if(mmin)mmin.textContent='aprovação: sobra mínima por venda/toner';
   const ab=oEl('orc-aprov'),side=oEl('orc-side-panel'),ib=oEl('orc-indices-body'),ss=oEl('orc-score-small'),sg=oEl('orc-sugestao-body');
   if(tV>0){
-    const ap=orcCA(tC,tV,lnf,nfv,ent);const{score,grade,i1,i2,i3,i4,i5,mg:g,tonerPct,tp,nfPct:np,entPct:ep}=ap;const{p1,p2,p3,p4,p5}=orcGP();
+    const ap=orcCA(tC,tV,lnf,nfv,ent,tQ);
+    const {score,grade,status,motivo,lucroVenda,lucroToner}=ap;
+    const p=orcGP();
+    const {lucroVendaMin,lucroVendaIdeal,lucroTonerMin,lucroTonerIdeal}=p;
     if(side) side.className='orc-side '+['ap0','ap1','ap2','ap3'][grade];
-    if(ss) ss.textContent=score+' de 5 bases';
+    if(ss) ss.textContent=score+' de 3';
     if(ab){
       ab.style.display='grid';ab.className='aprov-bar '+['ap0','ap1','ap2','ap3'][grade];
-      const tit=['RISCO','ATENÇÃO','APROVADO','EXCELENTE'][grade];
+      const tit=status;
       const icon=['×','!','✓','✓'][grade];
-      const sub=['Venda pode prejudicar a retirada/meta.','Não aprovar sem análise.','Venda saudável para o cenário atual.','Venda acima do padrão saudável.'][grade];
-      const reasons=[]; if(!i1)reasons.push('margem abaixo do saudável'); if(!i2)reasons.push('lucro por pedido insuficiente'); if(!i3)reasons.push('toner consumiu demais a venda'); if(!i4)reasons.push('NF acima da faixa saudável'); if(!i5)reasons.push('entrega/motoboy pesou na venda');
-      ab.innerHTML='<div class="aprov-icon">'+icon+'</div><div><div class="aprov-label">Status do orçamento</div><div class="aprov-title">'+tit+'</div><div class="aprov-sub">'+sub+'</div></div><div class="aprov-reason"><b>Motivo:</b> '+(reasons.length?reasons.join(', ')+'.':'Todas as bases saudáveis foram atingidas.')+'</div>';
+      const sub=['Revisar ou reprovar.','Atenção: margem operacional apertada.','Venda aprovada pela sobra operacional.','Venda excelente para proteger a retirada.'][grade];
+      ab.innerHTML='<div class="aprov-icon">'+icon+'</div><div><div class="aprov-label">Status do orçamento</div><div class="aprov-title">'+tit+'</div><div class="aprov-sub">'+sub+'</div></div><div class="aprov-reason"><b>Motivo:</b> '+motivo+'<br><b>Sobra por venda:</b> '+oFS(lucroVenda)+' | <b>Sobra por toner:</b> '+oFS(lucroToner)+'</div>';
     }
     if(ib){
       const row=(ok,nome,val,min,inv)=>'<div class="orc-index-row"><div class="orc-index-name"><span class="orc-dot" style="background:'+(ok?'#059669':'#dc2626')+'"></span>'+nome+'</div><div class="orc-index-val" style="color:'+(ok?'#059669':'#dc2626')+'">'+val+'</div><div class="orc-index-min">'+(inv?'máx. ':'mín. ')+min+'</div><div style="text-align:right;color:'+(ok?'#059669':'#dc2626')+';font-weight:900">'+(ok?'✓':'×')+'</div></div>';
-      ib.innerHTML=row(i1,'Margem operacional',g.toFixed(1)+'%',Number(p1).toFixed(1)+'%',false)+row(i2,'Lucro por pedido',oF(lnf),oF(p2),false)+row(i3,'Saúde do toner',tp.toFixed(1)+'%',Number(p3).toFixed(1)+'%',true)+row(i4,'Saúde da NF',np.toFixed(1)+'%',Number(p4).toFixed(1)+'%',true)+row(i5,'Saúde da entrega',ep.toFixed(1)+'%',Number(p5).toFixed(1)+'%',true);
+      ib.innerHTML=row(lucroVenda>=lucroVendaMin,'Lucro operacional por venda',oFS(lucroVenda),oF(lucroVendaMin),false)+row(lucroVenda>=lucroVendaIdeal,'Ideal por venda',oFS(lucroVenda),oF(lucroVendaIdeal),false)+row(lucroToner>=lucroTonerMin,'Lucro operacional por toner',oFS(lucroToner),oF(lucroTonerMin),false)+row(lucroToner>=lucroTonerIdeal,'Ideal por toner',oFS(lucroToner),oF(lucroTonerIdeal),false);
     }
     if(sg){
       sg.style.display='block';
       let alvo=tV;
       if(grade<2){
-        const vendaMargem=(tV>0 && (1-(pnf/100)-(p1/100))>0)?(tC+bol+ent)/(1-(pnf/100)-(p1/100)):tV;
-        const vendaLucro=tV+Math.max(0,p2-lnf);
-        const vendaToner=p3>0?tC/(p3/100):tV;
-        const vendaNF=(p4>0 && pnf>0)?nfv/(p4/100):tV;
-        const vendaEntrega=(p5>0 && ent>0)?ent/(p5/100):tV;
-        alvo=Math.ceil(Math.max(vendaMargem,vendaLucro,vendaToner,vendaNF,vendaEntrega,tV)*100)/100;
-        sg.innerHTML='<div class="sug-title">Sugestão para proteger a retirada</div>Venda total sugerida para voltar ao cenário saudável:<div class="sug-val">'+oF(alvo)+'</div><div>Diferença necessária: +'+oF(Math.max(0,alvo-tV))+'</div>';
+        const faltaVenda=Math.max(0,lucroVendaMin-lnf);
+        const faltaToner=Math.max(0,(lucroTonerMin*(tQ||1))-lnf);
+        const incremento=Math.min(faltaVenda || Infinity, faltaToner || Infinity);
+        alvo=Math.ceil((tV+(isFinite(incremento)?incremento:0))*100)/100;
+        sg.innerHTML='<div class="sug-title">Sugestão para aprovar</div>Venda total sugerida para atingir a sobra operacional mínima:<div class="sug-val">'+oF(alvo)+'</div><div>Diferença necessária: +'+oF(Math.max(0,alvo-tV))+'</div>';
         sg.style.background='#eff6ff';sg.style.borderColor='#bfdbfe';sg.style.color='#1d4ed8';
       }else{
-        sg.innerHTML='<div class="sug-title">Sugestão</div>Venda dentro das bases saudáveis. Ela ajuda a preservar o cenário mínimo da empresa.';
+        sg.innerHTML='<div class="sug-title">Sugestão</div>Venda aprovada pela lógica de sobra operacional. Ela ajuda a preservar a retirada mínima.';
         sg.style.background='#ecfdf5';sg.style.borderColor='#bbf7d0';sg.style.color='#065f46';
       }
     }
@@ -7515,7 +7531,7 @@ function orcSalvar(){
   const pnf=parseFloat(oEl('oa-pnf')?.value)||0,bol=parseFloat(oEl('oa-bol')?.value)||0,ent=parseFloat(oEl('oa-ent')?.value)||0;
   const nfv=tV*(pnf/100);tVar=nfv+bol+ent;
   const ct2=tC+tVar,lnf=tV-ct2;
-  const{score,mk,mg}=orcCA(tC,tV,lnf);
+  const{score,mg,lucroToner,status}=orcCA(tC,tV,lnf,nfv,ent,tQ);
   const cli=oEl('orc-cliente')?.value.trim()||'(sem nome)';
   const dataISO=oEl('orc-data-inp')?.value||oH();
   const data=dataISO.split('-').reverse().join('/');
@@ -7534,7 +7550,9 @@ function orcSalvar(){
     lnf,
     score,
     mk,
-    mg
+    mg,
+    lucroToner,
+    status
   };
   orcHistory.push(registro);
   orcNum = numeroAtual + 1;
@@ -7804,11 +7822,17 @@ function pmResumo(){
 
   const avg=arr=>arr.reduce((a,b)=>a+b,0)/arr.length;
   const clsPct=(v,ok,warn)=> v<=ok?'pm-ok':(v<=warn?'pm-warn':'pm-risk');
-  const clsMarg=(v)=> v>=24?'pm-ok':(v>=20?'pm-warn':'pm-risk');
+  const clsMarg=(v)=> v>=0?'pm-ok':'pm-risk';
   const statusMes=(m)=>{
-    if(m.pctToner<=30 && m.pctDireto<=42 && m.margem>=24 && m.res>=0) return {txt:'🟢 Saudável',cls:'pm-ok'};
-    if(m.pctToner<=38 && m.pctDireto<=48 && m.margem>=20) return {txt:'🟡 Atenção',cls:'pm-warn'};
-    return {txt:'🔴 Risco',cls:'pm-risk'};
+    const lucroVenda = m.vendas>0 ? m.lop/m.vendas : 0;
+    const lucroToner = m.qtd>0 ? m.lop/m.qtd : 0;
+    const okVenda = lucroVenda >= BAIRE_APROV.lucroVendaMin;
+    const okToner = lucroToner >= BAIRE_APROV.lucroTonerMin;
+    const idealVenda = lucroVenda >= BAIRE_APROV.lucroVendaIdeal;
+    const idealToner = lucroToner >= BAIRE_APROV.lucroTonerIdeal;
+    if(idealVenda || idealToner) return {txt:'🟢 Excelente',cls:'pm-ok'};
+    if(okVenda || okToner) return {txt:'✅ Aprovado',cls:'pm-ok'};
+    return {txt:'🔴 Reprovado',cls:'pm-risk'};
   };
 
   // Painel financeiro inteligente: percentuais mês a mês
@@ -7824,7 +7848,8 @@ function pmResumo(){
         <td><span class="pm-pill ${clsPct(m.pctMoto,3,4)}">${m.pctMoto.toFixed(1)}%</span></td>
         <td><span class="pm-pill ${clsPct(m.pctBol,1,2)}">${m.pctBol.toFixed(1)}%</span></td>
         <td><span class="pm-pill ${clsPct(m.pctDireto,42,48)}">${m.pctDireto.toFixed(1)}%</span></td>
-        <td><span class="pm-pill ${clsMarg(m.margem)}">${m.margem.toFixed(1)}%</span></td>
+        <td><span class="pm-pill ${(m.lop/(m.vendas||1))>=BAIRE_APROV.lucroVendaMin?'pm-ok':'pm-risk'}">${oF(m.lop/(m.vendas||1))}</span></td>
+        <td><span class="pm-pill ${(m.lop/(m.qtd||1))>=BAIRE_APROV.lucroTonerMin?'pm-ok':'pm-risk'}">${oF(m.lop/(m.qtd||1))}</span></td>
         <td style="color:${m.res>=0?'#059669':'#dc2626'};font-weight:700">${oFS(m.res)}</td>
         <td style="text-align:center"><span class="pm-pill ${st.cls}">${st.txt}</span></td>
       </tr>`;
@@ -7845,7 +7870,9 @@ function pmResumo(){
       <div class="pm-intel-mini"><div class="lbl">Resultado final médio</div><div class="val" style="color:${medResultado>=0?'#059669':'#dc2626'}">${oFS(medResultado)}</div><div class="hint">Depois da retirada digitada.</div></div>`;
   }
 
-  // Cards antigos de calibração
+  // Cards antigos de calibração removidos para não duplicar/confundir com a nova regra.
+  if(rb) rb.style.display='none';
+  return;
   if(!rb||!rbb)return;
   rb.style.display='block';
   const cards=[
