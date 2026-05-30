@@ -9068,4 +9068,203 @@ function salvarOrcamentoTopoSeguro(){
 })();
 </script>
 
+
+
+<!-- ============================================================
+     LOGIN / USUÁRIOS / PERMISSÕES POR TELA — BAIRE
+     Primeira versão simples para uso interno em GitHub Pages.
+     ============================================================ -->
+<style id="baire-login-css">
+  #loginOverlay{position:fixed;inset:0;background:radial-gradient(circle at top left,rgba(26,58,92,.55),transparent 34%),linear-gradient(135deg,#050b14 0%,#081220 45%,#0a1628 100%);z-index:99999;display:none;align-items:center;justify-content:center;padding:20px}
+  #loginBox{width:min(460px,94vw);background:#ffffff;border-radius:20px;box-shadow:0 28px 80px rgba(0,0,0,.55);overflow:hidden;border:1px solid rgba(255,255,255,.16)}
+  #loginBox .lh{background:linear-gradient(135deg,#07111f,#0a1628 65%,#102845);color:#fff;padding:22px 24px}
+  #loginBox .lh h2{font-size:18px;margin:0 0 5px;font-weight:800}
+  #loginBox .lh p{font-size:12px;margin:0;color:rgba(255,255,255,.72);line-height:1.4}
+  #loginBox .lb{padding:20px 22px;display:flex;flex-direction:column;gap:12px}
+  #loginBox label{font-size:12px;font-weight:700;color:#374151;margin-bottom:4px;display:block}
+  #loginBox input{width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px 12px;font-size:14px;text-transform:none!important}
+  #loginBox button{border:none;border-radius:10px;padding:12px 14px;font-size:14px;font-weight:800;cursor:pointer;background:#0a1628;color:#fff;box-shadow:0 6px 18px rgba(10,22,40,.22)} #loginBox button:hover{background:#102845}
+  #loginMsg{font-size:12px;color:#991b1b;min-height:16px}
+  #userBadgeTop{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:700;margin-right:6px}
+  #btnLogoutTop{background:rgba(255,255,255,.12)!important;border:1px solid rgba(255,255,255,.28)!important;color:#fff!important;border-radius:999px!important;padding:5px 10px!important;font-size:12px!important}
+  .perm-hidden{display:none!important}
+  .user-perm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:8px}
+  .user-check{display:flex;align-items:center;gap:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;color:#374151}
+  .user-check input{width:auto}
+  .user-pill{display:inline-block;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:700;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd}
+  .login-note{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.4;margin:0 0 12px}
+
+  #page-usuarios .card{border-radius:12px;box-shadow:0 4px 16px rgba(15,23,42,.05)}
+  #page-usuarios .card-header{background:linear-gradient(135deg,#f8fafc,#eef4fb)}
+  #page-usuarios .user-perm-grid label{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:700;color:#334155}
+  #page-usuarios .user-perm-grid label:hover{background:#eef4fb}
+
+</style>
+
+<div id="loginOverlay">
+  <div id="loginBox">
+    <div class="lh">
+      <h2>BAIRE — Acesso ao Sistema</h2>
+      <p>Entre com usuário e senha. As telas aparecem conforme a permissão cadastrada.</p>
+    </div>
+    <div class="lb">
+      <div>
+        <label>Usuário</label>
+        <input id="loginUsuario" type="text" placeholder="ex: iris" autocomplete="username">
+      </div>
+      <div>
+        <label>Senha</label>
+        <input id="loginSenha" type="password" placeholder="senha" autocomplete="current-password">
+      </div>
+      <div id="loginMsg"></div>
+      <button onclick="baireLoginEntrar()">Entrar</button>
+      <div style="font-size:11px;color:#64748b;line-height:1.4">Primeiro acesso padrão: <strong>iris / 1234</strong>. Depois altere/cadastre usuários em <strong>Usuários</strong>.</div>
+    </div>
+  </div>
+</div>
+
+<script id="baire-login-js">
+(function(){
+  const USERS_KEY='baire_usuarios_sistema';
+  const SESSION_KEY='baire_usuario_logado';
+  const PAGE_LABELS={
+    estoque:'Estoque / NFs', vendas:'Registrar Venda', historico:'Histórico de Vendas', rastreio:'Rastreabilidade', importar:'Importar CSV', defeitos:'Defeitos', produtos:'Produtos', orcamento:'Orçamento Admin', 'orc-func':'Orçamento Vendedores', cotacoes:'Cotações', aprovacoes:'Aprovações', usuarios:'Usuários'
+  };
+  const DEFAULT_USERS=[
+    {usuario:'iris',senha:'1234',nome:'IRIS',perfil:'ADMIN',abas:['estoque','vendas','historico','rastreio','importar','defeitos','produtos','orcamento','orc-func','cotacoes','aprovacoes','usuarios']},
+    {usuario:'verinha',senha:'1234',nome:'VERINHA',perfil:'APROVADORA',abas:['orcamento','orc-func','cotacoes','aprovacoes']},
+    {usuario:'karol',senha:'1234',nome:'KAROL',perfil:'APROVADORA',abas:['vendas','historico','orcamento','orc-func','aprovacoes']},
+    {usuario:'anderson',senha:'1234',nome:'ANDERSON',perfil:'VENDEDOR',abas:['orc-func']},
+    {usuario:'cristiane',senha:'1234',nome:'CRISTIANE',perfil:'VENDEDOR',abas:['orc-func']}
+  ];
+  function norm(s){return String(s||'').trim().toUpperCase();}
+  function lower(s){return String(s||'').trim().toLowerCase();}
+  function users(){
+    try{ const a=JSON.parse(localStorage.getItem(USERS_KEY)||'null'); if(Array.isArray(a)&&a.length) return a; }catch(e){}
+    localStorage.setItem(USERS_KEY, JSON.stringify(DEFAULT_USERS));
+    return DEFAULT_USERS.slice();
+  }
+  function saveUsers(a){localStorage.setItem(USERS_KEY, JSON.stringify(a||[]));}
+  function current(){try{return JSON.parse(localStorage.getItem(SESSION_KEY)||'null');}catch(e){return null;}}
+  function isAdmin(){const u=current(); return !!u && (u.perfil==='ADMIN' || (u.abas||[]).includes('usuarios'));}
+  function canPage(id){const u=current(); if(!u) return false; return (u.abas||[]).includes(id) || u.perfil==='ADMIN';}
+  window.baireLoginAtual=current;
+  window.baireLoginPode=canPage;
+  window.baireLoginSair=function(){localStorage.removeItem(SESSION_KEY); location.reload();};
+  window.baireLoginEntrar=function(){
+    const usuario=lower(document.getElementById('loginUsuario')?.value);
+    const senha=String(document.getElementById('loginSenha')?.value||'');
+    const msg=document.getElementById('loginMsg');
+    const u=users().find(x=>lower(x.usuario)===usuario && String(x.senha||'')===senha);
+    if(!u){ if(msg) msg.textContent='Usuário ou senha inválidos.'; return; }
+    localStorage.setItem(SESSION_KEY, JSON.stringify({usuario:u.usuario,nome:norm(u.nome||u.usuario),perfil:u.perfil||'VENDEDOR',abas:u.abas||[]}));
+    location.reload();
+  };
+  function tabPageId(tab){
+    const tx=(tab.getAttribute('onclick')||'')+'';
+    const m=tx.match(/showPage\(['\"]([^'\"]+)['\"]\)/); if(m) return m[1];
+    if(tab.getAttribute('data-baire-cotacoes-tab')!==null) return 'cotacoes';
+    if(tab.getAttribute('data-baire-orc-func-tab')!==null) return 'orc-func';
+    const t=tab.textContent.toLowerCase();
+    if(t.includes('estoque')) return 'estoque'; if(t.includes('registrar')) return 'vendas'; if(t.includes('histórico de vendas')) return 'historico'; if(t.includes('rastre')) return 'rastreio'; if(t.includes('importar')) return 'importar'; if(t.includes('defeitos')) return 'defeitos'; if(t.includes('produtos')) return 'produtos'; if(t.includes('orçamento vendedores')) return 'orc-func'; if(t.includes('orçamento')) return 'orcamento'; if(t.includes('cotações')) return 'cotacoes'; if(t.includes('aprovações')) return 'aprovacoes'; if(t.includes('usuários')) return 'usuarios';
+    return '';
+  }
+  function firstAllowed(){const u=current(); if(!u) return null; const pref=['aprovacoes','orc-func','orcamento','cotacoes','vendas','historico','estoque','usuarios']; return pref.find(p=>canPage(p)) || (u.abas||[])[0] || null;}
+  function addTopUserBadge(){
+    const u=current(); if(!u) return;
+    const headerBtns=document.querySelector('header > div:last-child'); if(!headerBtns || document.getElementById('userBadgeTop')) return;
+    const span=document.createElement('span'); span.id='userBadgeTop'; span.textContent='👤 '+(u.nome||u.usuario)+' • '+(u.perfil||'');
+    const btn=document.createElement('button'); btn.id='btnLogoutTop'; btn.textContent='Sair'; btn.onclick=window.baireLoginSair;
+    headerBtns.insertBefore(btn, headerBtns.firstChild); headerBtns.insertBefore(span, btn);
+  }
+  function protegerHeader(){
+    if(isAdmin()) return;
+    document.querySelectorAll('header button, header label').forEach(el=>{
+      const t=el.textContent.toLowerCase();
+      if(t.includes('backup')||t.includes('restaurar')||t.includes('subir')) el.classList.add('perm-hidden');
+    });
+  }
+  function aplicarPermissoes(){
+    const u=current(); if(!u) return;
+    addTopUserBadge(); protegerHeader();
+    document.querySelectorAll('.tabs .tab').forEach(tab=>{ const id=tabPageId(tab); if(id && !canPage(id)) tab.classList.add('perm-hidden'); else tab.classList.remove('perm-hidden'); });
+    document.querySelectorAll('.page').forEach(pg=>{ const id=pg.id.replace(/^page-/,''); if(id && !canPage(id)) pg.classList.remove('active'); });
+    if(!document.querySelector('.page.active')){ const p=firstAllowed(); if(p && typeof window.showPage==='function') window.showPage(p); }
+  }
+  window.baireLoginAplicarPermissoes=aplicarPermissoes;
+  function criarTabAprovacoes(){
+    if(document.querySelector('[data-baire-aprovacoes-tab]')) return;
+    const tabs=document.querySelector('.tabs'); if(!tabs) return;
+    const t=document.createElement('div'); t.className='tab'; t.dataset.baireAprovacoesTab='1'; t.textContent='✅ Aprovações'; t.onclick=()=>showPage('aprovacoes');
+    const uTab=[...tabs.querySelectorAll('.tab')].find(x=>x.textContent.toLowerCase().includes('usuários'));
+    tabs.appendChild(t);
+  }
+  function criarTabUsuarios(){
+    if(document.querySelector('[data-baire-usuarios-tab]')) return;
+    const tabs=document.querySelector('.tabs'); if(!tabs) return;
+    const t=document.createElement('div'); t.className='tab'; t.dataset.baireUsuariosTab='1'; t.textContent='👥 Usuários'; t.onclick=()=>showPage('usuarios'); tabs.appendChild(t);
+  }
+  function criarPaginaUsuarios(){
+    if(document.getElementById('page-usuarios')) return;
+    const p=document.createElement('div'); p.id='page-usuarios'; p.className='page';
+    const checks=Object.entries(PAGE_LABELS).map(([id,label])=>`<label class="user-check"><input type="checkbox" class="usr-aba" value="${id}"> ${label}</label>`).join('');
+    p.innerHTML=`<div class="card"><div class="card-header"><h2>👥 Cadastro de Usuários e Permissões</h2><button class="btn-secondary" onclick="baireUserLimparForm()">Novo usuário</button></div><div style="padding:16px"><div class="login-note">Atenção: esta é uma proteção interna para organizar o acesso por tela. Como o sistema roda em GitHub Pages/localStorage, não é segurança bancária. Para uso interno da equipe, funciona bem.</div><div class="form-grid"><div class="form-group"><label>Usuário</label><input id="usr-login" type="text" placeholder="ex: verinha"></div><div class="form-group"><label>Nome</label><input id="usr-nome" type="text" placeholder="VERINHA"></div><div class="form-group"><label>Senha</label><input id="usr-senha" type="text" placeholder="1234"></div><div class="form-group"><label>Perfil</label><select id="usr-perfil"><option>VENDEDOR</option><option>APROVADORA</option><option>ADMIN</option></select></div></div><div style="margin-top:14px"><div class="section-title">Telas permitidas</div><div class="user-perm-grid">${checks}</div></div><div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn-primary" onclick="baireUserSalvar()">Salvar usuário</button><button class="btn-danger" onclick="baireUserExcluirAtual()">Excluir usuário selecionado</button></div></div></div><div class="card"><div class="card-header"><h2>Usuários cadastrados</h2></div><div style="overflow-x:auto"><table><thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Telas</th><th>Ações</th></tr></thead><tbody id="usr-lista"></tbody></table></div></div>`;
+    document.body.insertBefore(p, document.body.querySelector('#loginOverlay'));
+  }
+  function criarPaginaAprovacoes(){
+    if(document.getElementById('page-aprovacoes')) return;
+    const p=document.createElement('div'); p.id='page-aprovacoes'; p.className='page';
+    p.innerHTML=`<div class="card"><div class="card-header"><div><h2>✅ Aprovações de Orçamentos dos Vendedores</h2><div class="help">Tela para Iris, Karol ou Verinha aprovarem/reprovarem orçamentos enviados pelos vendedores.</div></div><div class="search-wrap"><input type="text" id="aprovBusca" placeholder="Buscar cliente, vendedor, produto..." oninput="baireAprovRender()"><select id="aprovFiltro" onchange="baireAprovRender()"><option value="pendentes">Somente pendentes</option><option value="todos">Todos</option><option value="aprovados">Aprovados</option><option value="reprovados">Reprovados</option></select></div></div><div style="overflow-x:auto"><table><thead><tr><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="aprovBody"></tbody></table></div></div>`;
+    document.body.insertBefore(p, document.body.querySelector('#loginOverlay'));
+  }
+  window.baireUserLimparForm=function(){
+    ['usr-login','usr-nome','usr-senha'].forEach(id=>{const e=document.getElementById(id); if(e) e.value='';});
+    const perfil=document.getElementById('usr-perfil'); if(perfil) perfil.value='VENDEDOR';
+    document.querySelectorAll('.usr-aba').forEach(c=>c.checked=false);
+  };
+  window.baireUserEditar=function(usuario){
+    const u=users().find(x=>lower(x.usuario)===lower(usuario)); if(!u) return;
+    document.getElementById('usr-login').value=u.usuario||''; document.getElementById('usr-nome').value=u.nome||''; document.getElementById('usr-senha').value=u.senha||''; document.getElementById('usr-perfil').value=u.perfil||'VENDEDOR';
+    document.querySelectorAll('.usr-aba').forEach(c=>c.checked=(u.abas||[]).includes(c.value));
+  };
+  window.baireUserSalvar=function(){
+    const usuario=lower(document.getElementById('usr-login')?.value); const nome=norm(document.getElementById('usr-nome')?.value||usuario); const senha=String(document.getElementById('usr-senha')?.value||''); const perfil=document.getElementById('usr-perfil')?.value||'VENDEDOR';
+    if(!usuario||!senha){alert('Informe usuário e senha.');return;}
+    const abas=[...document.querySelectorAll('.usr-aba:checked')].map(c=>c.value);
+    if(perfil==='ADMIN') Object.keys(PAGE_LABELS).forEach(k=>{if(!abas.includes(k)) abas.push(k);});
+    let arr=users().filter(x=>lower(x.usuario)!==usuario); arr.push({usuario,senha,nome,perfil,abas}); saveUsers(arr); window.baireUserRender(); alert('Usuário salvo.'); aplicarPermissoes();
+  };
+  window.baireUserExcluirAtual=function(){const usuario=lower(document.getElementById('usr-login')?.value); if(!usuario) return alert('Selecione um usuário.'); if(usuario==='iris') return alert('Não exclua o usuário Iris padrão.'); if(!confirm('Excluir usuário '+usuario+'?')) return; saveUsers(users().filter(x=>lower(x.usuario)!==usuario)); window.baireUserLimparForm(); window.baireUserRender();};
+  window.baireUserRender=function(){
+    const tb=document.getElementById('usr-lista'); if(!tb) return; const arr=users();
+    tb.innerHTML=arr.map(u=>`<tr><td><strong>${u.usuario}</strong></td><td>${u.nome||''}</td><td><span class="user-pill">${u.perfil||''}</span></td><td style="max-width:520px">${(u.abas||[]).map(a=>PAGE_LABELS[a]||a).join(', ')}</td><td><button class="btn-secondary btn-sm" onclick="baireUserEditar('${u.usuario}')">Editar</button></td></tr>`).join('');
+  };
+  function classeAprov(st){st=norm(st); if(st.includes('APROVADO')||st.includes('EXCELENTE')) return 'badge-ok'; if(st.includes('AJUSTE')||st.includes('PENDENTE')||st.includes('ATENÇÃO')) return 'badge-warn badge-pulse'; if(st.includes('REPROV')||st.includes('COTA')) return 'badge-alert'; return 'badge-zero';}
+  window.baireAprovRender=function(){
+    const tb=document.getElementById('aprovBody'); if(!tb) return;
+    let arr=[]; try{arr=JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios')||'[]')||[];}catch(e){}
+    const filtro=document.getElementById('aprovFiltro')?.value||'pendentes'; const q=norm(document.getElementById('aprovBusca')?.value||'');
+    if(q) arr=arr.filter(o=>norm(JSON.stringify(o)).includes(q));
+    arr=arr.filter(o=>{const st=norm(o.statusAdmin||o.status||''); if(filtro==='todos') return true; if(filtro==='aprovados') return st.includes('APROV'); if(filtro==='reprovados') return st.includes('REPROV'); return !st.includes('APROV') && !st.includes('REPROV');});
+    if(!arr.length){tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum orçamento para mostrar.</td></tr>';return;}
+    tb.innerHTML=arr.map(o=>{const st=o.statusAdmin||o.status||'PENDENTE APROVAÇÃO'; const detalhe=o.aprovadoPor?`<div class="help">por ${o.aprovadoPor} ${o.aprovadoEm?('em '+new Date(o.aprovadoEm).toLocaleString('pt-BR')):''}</div>`:''; const itens=(Array.isArray(o.itens)?o.itens:[]).map(i=>`<div><strong>${i.produto||'-'}</strong> — Qtd: ${i.qtd||0} | Sug.: ${typeof moeda==='function'?moeda(i.vendaSugerida||0):i.vendaSugerida} | Cliente: ${i.vendaCliente? (typeof moeda==='function'?moeda(i.vendaCliente):i.vendaCliente) :'—'} <span class="badge ${classeAprov(i.status)}">${i.status||''}</span></div>`).join('')||'Sem itens'; return `<tr><td>${typeof fmtData==='function'?fmtData(o.data):o.data}</td><td>${o.cliente||'-'}</td><td>${o.funcionario||'-'}</td><td><div class="itens-venda">${itens}</div></td><td><span class="badge ${classeAprov(st)}">${st}</span>${detalhe}</td><td><button class="btn-green btn-sm" onclick="baireFuncDecidir(${o.id},'APROVADO ADMIN')">Aprovar</button> <button class="btn-secondary btn-sm" onclick="baireFuncDecidir(${o.id},'SOLICITAR AJUSTE')">Ajuste</button> <button class="btn-danger btn-sm" onclick="baireFuncDecidir(${o.id},'REPROVADO ADMIN')">Reprovar</button></td></tr>`;}).join('');
+  };
+  function init(){
+    users();
+    criarTabAprovacoes(); criarTabUsuarios(); criarPaginaAprovacoes(); criarPaginaUsuarios();
+    const u=current();
+    if(!u){ const lo=document.getElementById('loginOverlay'); if(lo) lo.style.display='flex'; return; }
+    const lo=document.getElementById('loginOverlay'); if(lo) lo.style.display='none';
+    const oldShow=window.showPage;
+    window.showPage=function(id){ if(!canPage(id)){ alert('Usuário sem permissão para esta tela.'); const p=firstAllowed(); if(p&&p!==id) return window.showPage(p); return; } if(id==='usuarios'){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('page-usuarios')?.classList.add('active');document.querySelector('[data-baire-usuarios-tab]')?.classList.add('active');window.baireUserRender();return;} if(id==='aprovacoes'){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('page-aprovacoes')?.classList.add('active');document.querySelector('[data-baire-aprovacoes-tab]')?.classList.add('active');window.baireAprovRender();return;} return oldShow?oldShow(id):undefined; };
+    const oldDecidir=window.baireFuncDecidir;
+    window.baireFuncDecidir=function(id,decisao){ const cur=current(); let sel=document.getElementById('of-aprovador'); if(sel && cur?.nome){ let exists=[...sel.options].some(o=>o.value===cur.nome||o.textContent===cur.nome); if(!exists){const op=document.createElement('option');op.textContent=cur.nome;op.value=cur.nome;sel.appendChild(op);} sel.value=cur.nome; } const r=oldDecidir?oldDecidir(id,decisao):undefined; setTimeout(()=>{try{window.baireAprovRender();}catch(e){}},80); return r; };
+    aplicarPermissoes(); window.baireUserRender(); window.baireAprovRender();
+    setTimeout(()=>{aplicarPermissoes();},500); setTimeout(()=>{aplicarPermissoes();},1500);
+    const p=firstAllowed(); if(p && !document.querySelector('.page.active')) window.showPage(p);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else setTimeout(init,100);
+})();
+</script>
+
 </body></html>
