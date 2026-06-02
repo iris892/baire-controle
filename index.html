@@ -4,6 +4,8 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Baire Controle Estoque 2026</title>
+<!-- AJUSTE 2026-06-02: base recomendada após comparação com GitHub; mantém data Brasil e sincronização de cotações/orçamentos -->
+<!-- AJUSTE 2026-06-01: sincronização de Cotações + Orçamento Vendedores via Supabase -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 14px; background: #f4f6f9; color: #222; }
@@ -180,6 +182,17 @@
 }
 </style>
 
+
+<script>
+// Data local Brasil (corrige virada UTC: evita gravar 02/06 quando no Brasil ainda é 01/06)
+function baireHojeLocalISO(){
+  const d = new Date();
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(d).reduce((acc,p)=>{ acc[p.type]=p.value; return acc; },{});
+  return `${partes.year}-${partes.month}-${partes.day}`;
+}
+</script>
 </head>
 <body>
 
@@ -3536,6 +3549,26 @@ function orcMergeHistorico(localHist, cloudHist){
   });
 }
 
+function baireMergeOrcamentosVendedores(localArr, cloudArr){
+  const map = new Map();
+  const add = o => {
+    if(!o || typeof o !== 'object') return;
+    const itensKey = JSON.stringify(o.itens || []).slice(0,260);
+    const key = String(o.id || [o.data || '', o.criadoEm || '', o.cliente || '', o.funcionario || '', itensKey].join('|'));
+    const antigo = map.get(key);
+    const da = new Date(o.atualizadoEm || o.aprovadoEm || o.criadoEm || o.data || 0).getTime() || 0;
+    const db = new Date(antigo?.atualizadoEm || antigo?.aprovadoEm || antigo?.criadoEm || antigo?.data || 0).getTime() || 0;
+    if(!antigo || da >= db) map.set(key, o);
+  };
+  (Array.isArray(cloudArr) ? cloudArr : []).forEach(add);
+  (Array.isArray(localArr) ? localArr : []).forEach(add);
+  return Array.from(map.values()).sort((a,b)=>{
+    const da = new Date(a.atualizadoEm || a.aprovadoEm || a.criadoEm || a.data || 0).getTime() || 0;
+    const db = new Date(b.atualizadoEm || b.aprovadoEm || b.criadoEm || b.data || 0).getTime() || 0;
+    return db - da;
+  });
+}
+
 function orcMergePainel(localPm, cloudPm){
   const out = Object.assign({}, cloudPm || {});
   Object.keys(localPm || {}).forEach(mk=>{
@@ -3566,6 +3599,14 @@ async function salvarNuvem() {
   await supaSet('orc_history', od.hist);
   await supaSet('orc_pm', od.pm);
   await supaSet('orc_num', od.num);
+  try {
+    const cots = JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores') || localStorage.getItem('cotacoesFornecedor') || '[]');
+    if (Array.isArray(cots)) await supaSet('cotacoesFornecedor', cots);
+  } catch(e) {}
+  try {
+    const of = JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios') || '[]');
+    if (Array.isArray(of)) await supaSet('baire_orcamentos_funcionarios', of);
+  } catch(e) {}
 }
 
 async function sincronizarManual() {
@@ -3621,10 +3662,10 @@ async function carregarNuvem() {
   try {
     // Timeout de 5 segundos para não travar o sistema
     const timeout = new Promise((_,reject) => setTimeout(()=>reject(new Error('timeout')), 5000));
-    const [nfsData, vendasData, defeitosData, rascunhoData, produtosData, orcHistData, orcPmData, orcNumData] = await Promise.race([
+    const [nfsData, vendasData, defeitosData, rascunhoData, produtosData, orcHistData, orcPmData, orcNumData, cotacoesData, orcFuncData] = await Promise.race([
       Promise.all([
         supaGet('nfs'), supaGet('vendas'), supaGet('defeitos'), supaGet('rascunho'), supaGet('produtos_ca'),
-        supaGet('orc_history'), supaGet('orc_pm'), supaGet('orc_num')
+        supaGet('orc_history'), supaGet('orc_pm'), supaGet('orc_num'), supaGet('cotacoesFornecedor'), supaGet('baire_orcamentos_funcionarios')
       ]),
       timeout.then(()=>{ throw new Error('timeout'); })
     ]);
@@ -3731,6 +3772,42 @@ async function carregarNuvem() {
     orcNum = Math.max(orcNumLocal || 1, numCloud || 1, maxHistNum || 1);
     localStorage.setItem('orc_num', String(orcNum));
     await supaSet('orc_num', orcNum).catch(()=>{});
+
+    // Sincroniza COTAÇÕES de todos os computadores (merge por id/data/produtos).
+    try {
+      const cotLocal = JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores') || localStorage.getItem('cotacoesFornecedor') || '[]');
+      const cotCloud = Array.isArray(cotacoesData) ? cotacoesData : [];
+      const mapCot = new Map();
+      const chaveCot = c => String(c?.id || ((c?.data||'') + '|' + JSON.stringify(c?.itens||[]).slice(0,180)));
+      const addCot = c => {
+        if(!c || typeof c !== 'object') return;
+        const k = chaveCot(c);
+        const antigo = mapCot.get(k);
+        const da = new Date(c.atualizadoEm || c.data || 0).getTime() || 0;
+        const db = new Date(antigo?.atualizadoEm || antigo?.data || 0).getTime() || 0;
+        if(!antigo || da >= db) mapCot.set(k, c);
+      };
+      (Array.isArray(cotCloud)?cotCloud:[]).forEach(addCot);
+      (Array.isArray(cotLocal)?cotLocal:[]).forEach(addCot);
+      const cotMerge = Array.from(mapCot.values()).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
+      localStorage.setItem('baire_cotacoes_fornecedores', JSON.stringify(cotMerge));
+      localStorage.setItem('cotacoesFornecedor', JSON.stringify(cotMerge));
+      await supaSet('cotacoesFornecedor', cotMerge).catch(()=>{});
+      if (typeof window.baireRenderHistoricoCotacoes === 'function') setTimeout(window.baireRenderHistoricoCotacoes, 100);
+    } catch(e) { console.warn('Falha ao sincronizar cotações:', e); }
+
+
+
+    // Sincroniza ORÇAMENTOS DOS VENDEDORES (aba Orçamento Vendedores) entre computadores.
+    try {
+      const ofLocal = JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios') || '[]');
+      const ofCloud = Array.isArray(orcFuncData) ? orcFuncData : [];
+      const ofMerge = baireMergeOrcamentosVendedores(ofLocal, ofCloud);
+      localStorage.setItem('baire_orcamentos_funcionarios', JSON.stringify(ofMerge));
+      await supaSet('baire_orcamentos_funcionarios', ofMerge).catch(()=>{});
+      if (typeof window.baireFuncRenderHistorico === 'function') setTimeout(window.baireFuncRenderHistorico, 100);
+      if (typeof window.baireAprovRender === 'function') setTimeout(window.baireAprovRender, 150);
+    } catch(e) { console.warn('Falha ao sincronizar orçamentos dos vendedores:', e); }
 
     // Salva tudo no localStorage como fallback
     localStorage.setItem('toner_nfs', JSON.stringify(nfs));
@@ -3943,7 +4020,7 @@ let _nfItemCount = 0;
 
 function openModalNF() {
   _nfItemCount = 0;
-  document.getElementById('nf_data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('nf_data').value = baireHojeLocalISO();
   ['nf_nf','nf_ped','nf_ref','nf_fornecedor','nf_valor','nf_link'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('nf_itens_lista').innerHTML = '';
   document.getElementById('nfMsg').textContent = '';
@@ -4668,7 +4745,7 @@ function showPage(id) {
   if (id==='produtos') renderProdutos();
   if (id==='importar') carregarRascunhoImport();
   if (id==='vendas') {
-    document.getElementById('v_data').value = new Date().toISOString().split('T')[0];
+    document.getElementById('v_data').value = baireHojeLocalISO();
     document.querySelectorAll('[id^="listaProdutos"]').forEach(el=>{
       el.innerHTML = produtosUnicos().map(p=>`<option value="${p}">`).join('');
     });
@@ -5588,7 +5665,7 @@ const STATUS_LABEL = {
 };
 
 function openModalDefeito() {
-  const hoje = new Date().toISOString().split('T')[0];
+  const hoje = baireHojeLocalISO();
   document.getElementById('def_data').value = hoje;
   document.getElementById('def_data_venda').value = '';
   document.getElementById('def_data_analise').value = hoje;
@@ -5829,7 +5906,7 @@ function salvarDefeito() {
     dataCompra: dataCompraFinal,
     pedCompra: pedCompraFinal,
     loteId: parseInt(document.getElementById('def_lote_id')?.value||'0')||0,
-    historico: [{data: new Date().toISOString().split('T')[0], status, obs}]
+    historico: [{data: baireHojeLocalISO(), status, obs}]
   };
 
   // Verifica se é edição ou novo registro
@@ -5961,11 +6038,11 @@ function salvarDefStatus() {
   if (d) {
     d.status = status;
     if (status === 'enviado_fornecedor' && !d.dataEnvioFornecedor) {
-      d.dataEnvioFornecedor = new Date().toISOString().split('T')[0];
+      d.dataEnvioFornecedor = baireHojeLocalISO();
     }
     if (obs) d.obs = obs;
     d.historico = d.historico || [];
-    d.historico.push({data: new Date().toISOString().split('T')[0], status, obs});
+    d.historico.push({data: baireHojeLocalISO(), status, obs});
     salvarDefeitos();
     renderDefeitos();
     renderMetricasDefeitos();
@@ -6027,7 +6104,7 @@ function obterIdsDefeitosSelecionados() {
 
 function aplicarStatusDefeitosPorIds(ids, origemTexto) {
   const novoStatus = normalizarStatusDefeito(document.getElementById('defStatusLote')?.value || '');
-  const dataEnvioInformada = document.getElementById('defDataEnvioLote')?.value || new Date().toISOString().split('T')[0];
+  const dataEnvioInformada = document.getElementById('defDataEnvioLote')?.value || baireHojeLocalISO();
 
   if (!novoStatus) { alert('Escolha o novo status antes de aplicar.'); return; }
   if (!ids.length) { alert('Nenhum registro selecionado.'); return; }
@@ -6044,7 +6121,7 @@ function aplicarStatusDefeitosPorIds(ids, origemTexto) {
       if (novoStatus === 'enviado_fornecedor') d.dataEnvioFornecedor = dataEnvioInformada;
       d.historico = d.historico || [];
       d.historico.push({
-        data: new Date().toISOString().split('T')[0],
+        data: baireHojeLocalISO(),
         status: novoStatus,
         dataEnvioFornecedor: novoStatus === 'enviado_fornecedor' ? dataEnvioInformada : (d.dataEnvioFornecedor || ''),
         obs: origemTexto === 'selecionado(s)' ? 'Alteração em lote dos itens selecionados' : 'Alteração em lote pelos filtros da tela'
@@ -6057,7 +6134,7 @@ function aplicarStatusDefeitosPorIds(ids, origemTexto) {
   try { localStorage.setItem('toner_defeitos', JSON.stringify(defeitos)); } catch(e) {}
   document.getElementById('defStatusLote').value = '';
   const dataLote = document.getElementById('defDataEnvioLote');
-  if (dataLote) dataLote.value = new Date().toISOString().split('T')[0];
+  if (dataLote) dataLote.value = baireHojeLocalISO();
   const filtroStatus = document.getElementById('filtroDefStatus');
   if (filtroStatus) filtroStatus.value = '';
   const chkTodos = document.getElementById('chkDefTodos');
@@ -6779,7 +6856,7 @@ function exportarDados() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `backup_baire_COMPLETO_${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `backup_baire_COMPLETO_${baireHojeLocalISO()}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -6954,7 +7031,7 @@ function exportarLocalStorageCompleto() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `backup_localstorage_baire_${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `backup_localstorage_baire_${baireHojeLocalISO()}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -7461,7 +7538,7 @@ window.orcamentoHistoricoAbertoIdx = null;
 function oF(v){return 'R$\u00a0'+Math.abs(v).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');}
 function oFS(v){return(v<0?'- ':'')+oF(v);}
 function oP(v,t){return t>0?(v/t*100).toFixed(1)+'%':'—';}
-function oH(){return new Date().toISOString().slice(0,10);}
+function oH(){return baireHojeLocalISO();}
 function oEl(id){return document.getElementById(id);}
 function oSV(id,v){const e=oEl(id);if(e)e.textContent=v;}
 
@@ -8407,7 +8484,7 @@ function salvarOrcamentoTopoSeguro(){
   let cotEditId = null;
 
   function qs(id){ return document.getElementById(id); }
-  function hojeISO(){ return new Date().toISOString().slice(0,10); }
+  function hojeISO(){ return baireHojeLocalISO(); }
   function normaliza(txt){ return String(txt||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
   function esc(s){ return String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
   function fmtData(d){ if(!d) return '-'; const p=String(d).split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : d; }
@@ -8433,7 +8510,59 @@ function salvarOrcamentoTopoSeguro(){
     arr = Array.isArray(arr) ? arr : [];
     localStorage.setItem(KEY, JSON.stringify(arr));
     localStorage.setItem(KEY2, JSON.stringify(arr));
+    // Salva cotações na nuvem automaticamente quando estiver online.
+    try { if (window.location.protocol !== 'file:') baireCotacoesSubirNuvem(false); } catch(e) {}
   }
+  function mergeCotacoes(localArr, cloudArr){
+    const map = new Map();
+    const key = c => String(c?.id || ((c?.data||'') + '|' + JSON.stringify(c?.itens||[]).slice(0,180)));
+    const add = c => {
+      if(!c || typeof c !== 'object') return;
+      const k = key(c);
+      const antigo = map.get(k);
+      const da = new Date(c.atualizadoEm || c.data || 0).getTime() || 0;
+      const db = new Date(antigo?.atualizadoEm || antigo?.data || 0).getTime() || 0;
+      if(!antigo || da >= db) map.set(k,c);
+    };
+    (Array.isArray(cloudArr)?cloudArr:[]).forEach(add);
+    (Array.isArray(localArr)?localArr:[]).forEach(add);
+    return Array.from(map.values()).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
+  }
+  window.baireCotacoesSubirNuvem = async function(avisa=true){
+    try{
+      if(window.location.protocol === 'file:'){ if(avisa) alert('Arquivo local: abra o sistema online para sincronizar cotações.'); return false; }
+      if(typeof supaGet !== 'function' || typeof supaSet !== 'function'){ if(avisa) alert('Nuvem não disponível nesta versão.'); return false; }
+      const local = cotacoes();
+      const cloud = await supaGet('cotacoesFornecedor');
+      const merged = mergeCotacoes(local, Array.isArray(cloud)?cloud:[]);
+      localStorage.setItem(KEY, JSON.stringify(merged));
+      localStorage.setItem(KEY2, JSON.stringify(merged));
+      await supaSet('cotacoesFornecedor', merged);
+      if(typeof window.baireRenderHistoricoCotacoes === 'function') window.baireRenderHistoricoCotacoes();
+      if(avisa) alert('✓ Cotações sincronizadas na nuvem.');
+      return true;
+    }catch(e){ console.warn(e); if(avisa) alert('Erro ao sincronizar cotações: '+(e.message||e)); return false; }
+  };
+  window.baireCotacoesBaixarNuvem = async function(avisa=true){
+    try{
+      if(window.location.protocol === 'file:'){ if(avisa) alert('Arquivo local: abra o sistema online para baixar cotações.'); return false; }
+      if(typeof supaGet !== 'function' || typeof supaSet !== 'function'){ if(avisa) alert('Nuvem não disponível nesta versão.'); return false; }
+      const cloud = await supaGet('cotacoesFornecedor');
+      const merged = mergeCotacoes(cotacoes(), Array.isArray(cloud)?cloud:[]);
+      localStorage.setItem(KEY, JSON.stringify(merged));
+      localStorage.setItem(KEY2, JSON.stringify(merged));
+      await supaSet('cotacoesFornecedor', merged);
+      if(typeof window.baireRenderHistoricoCotacoes === 'function') window.baireRenderHistoricoCotacoes();
+      if(avisa) alert('✓ Cotações baixadas/sincronizadas.');
+      return true;
+    }catch(e){ console.warn(e); if(avisa) alert('Erro ao baixar cotações: '+(e.message||e)); return false; }
+  };
+  window.baireBackupCotacoes = function(){
+    const dados={versao:1,tipo:'cotacoesFornecedor',data:new Date().toISOString(),cotacoesFornecedor:cotacoes()};
+    const blob=new Blob([JSON.stringify(dados,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url; a.download=`backup_cotacoes_baire_${baireHojeLocalISO()}.json`; a.click(); URL.revokeObjectURL(url);
+  };
   window.baireCotacoes = cotacoes;
 
   function listaProdutosCatalogo(){
@@ -8493,6 +8622,8 @@ function salvarOrcamentoTopoSeguro(){
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn-secondary" onclick="baireNovaCotacao()">Nova cotação</button>
             <button class="btn-green" onclick="baireSalvarCotacao()">Salvar cotação</button>
+            <button class="btn-primary" onclick="baireCotacoesBaixarNuvem(true)">☁️ Sincronizar cotações</button>
+            <button class="btn-secondary" onclick="baireBackupCotacoes()">💾 Backup cotações</button>
           </div>
         </div>
         <div style="padding:16px">
@@ -8581,21 +8712,37 @@ function salvarOrcamentoTopoSeguro(){
     atualizarDatalistProdutos();
     window.baireRenderHistoricoCotacoes();
   };
-  window.baireSalvarCotacao=function(){
+  window.baireSalvarCotacao=async function(){
     const data=qs('cot-data')?.value || hojeISO();
     const fornecedores=fornSelecionados();
     const itens=linhasAtuais().map(x=>({produto:normaliza(x.produto),qtd:x.qtd,valores:x.valores,obs:normaliza(x.obs)})).filter(x=>x.produto);
     if(!fornecedores.length){ alert('Selecione pelo menos um fornecedor.'); return; }
     if(!itens.length){ alert('Inclua pelo menos um produto na cotação.'); return; }
-    const arr=cotacoes();
-    const obj={id:cotEditId||Date.now(), data, fornecedores, itens, atualizadoEm:new Date().toISOString()};
+
+    // Monta registro novo/edição e grava primeiro LOCALMENTE.
+    let arr=cotacoes();
+    const obj={id:cotEditId||Date.now(), data, fornecedores, itens, atualizadoEm:new Date().toISOString(), criadoPor:(window.usuarioLogado?.nome||window.usuarioLogado?.usuario||'')};
     const idx=arr.findIndex(c=>String(c.id)===String(obj.id));
     if(idx>=0) arr[idx]=obj; else arr.unshift(obj);
-    salvarCotacoes(arr);
+    arr = mergeCotacoes(arr, []);
+
+    // Grava nos dois nomes usados pelo sistema para evitar divergência entre telas/dispositivos.
+    localStorage.setItem(KEY, JSON.stringify(arr));
+    localStorage.setItem(KEY2, JSON.stringify(arr));
+
+    // Limpa busca para não esconder a cotação recém-salva e renderiza imediatamente.
+    if(qs('cot-busca')) qs('cot-busca').value='';
     cotEditId=obj.id;
     window.baireRenderHistoricoCotacoes();
-    setTimeout(window.baireRenderHistoricoCotacoes, 50);
-    alert('✓ Cotação salva e listada no histórico.');
+    setTimeout(window.baireRenderHistoricoCotacoes, 100);
+
+    // Tenta sincronizar com a nuvem e depois renderiza de novo. Se a nuvem falhar, o histórico local continua visível.
+    let okNuvem=false;
+    try { okNuvem = await baireCotacoesSubirNuvem(false); } catch(e) { okNuvem=false; }
+    window.baireRenderHistoricoCotacoes();
+
+    const prods = itens.map(i=>i.produto).join(', ');
+    alert(okNuvem ? ('✓ Cotação salva no histórico e sincronizada na nuvem: '+prods) : ('✓ Cotação salva no histórico local. ATENÇÃO: não consegui confirmar a nuvem agora: '+prods));
   };
   window.baireRenderHistoricoCotacoes=function(){
     const tb=qs('cot-hist'); if(!tb) return;
@@ -8623,6 +8770,7 @@ function salvarOrcamentoTopoSeguro(){
     if(!confirm('Excluir esta cotação?')) return;
     salvarCotacoes(cotacoes().filter(c=>String(c.id)!==String(id)));
     if(String(cotEditId)===String(id)) cotEditId=null;
+    try { baireCotacoesSubirNuvem(false); } catch(e) {}
     window.baireRenderHistoricoCotacoes();
   };
 
@@ -8634,6 +8782,7 @@ function salvarOrcamentoTopoSeguro(){
       qs('page-cotacoes')?.classList.add('active');
       document.querySelector('[data-baire-cotacoes-tab]')?.classList.add('active');
       renderFornecedores(); atualizarDatalistProdutos();
+      try { window.baireCotacoesBaixarNuvem(false).then(()=>{ window.baireRenderHistoricoCotacoes(); }); } catch(e) {}
       if(!qs('cot-data')?.value) window.baireNovaCotacao(); else window.baireRenderCotTabela();
       window.baireRenderHistoricoCotacoes();
       return;
@@ -8682,7 +8831,7 @@ function salvarOrcamentoTopoSeguro(){
       const dados={versao:2,data:new Date().toISOString(),nfs:window.nfs||nfs||[],vendas:window.vendas||vendas||[],defeitos:window.defeitos||defeitos||[],rascunho:window.importVendas||[],cotacoesFornecedor:cotacoes(),painelMensal,historicoOrcamentos,proximoOrcamento:(typeof window.orcNum!=='undefined'?window.orcNum:(typeof orcNum!=='undefined'?orcNum:1)),localStorageFull};
       const blob=new Blob([JSON.stringify(dados,null,2)],{type:'application/json'});
       const url=URL.createObjectURL(blob); const a=document.createElement('a');
-      a.href=url; a.download=`backup_baire_COMPLETO_${new Date().toISOString().split('T')[0]}.json`; a.click(); URL.revokeObjectURL(url);
+      a.href=url; a.download=`backup_baire_COMPLETO_${baireHojeLocalISO()}.json`; a.click(); URL.revokeObjectURL(url);
     } catch(e){ oldExportarDados(); }
   };
 
@@ -8733,7 +8882,7 @@ function salvarOrcamentoTopoSeguro(){
   function qs(id){ return document.getElementById(id); }
   function esc(s){ return String(s ?? '').replace(/[&<>\"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[ch] || ch)); }
   function normaliza(txt){ return String(txt||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
-  function hojeISO(){ return new Date().toISOString().slice(0,10); }
+  function hojeISO(){ return baireHojeLocalISO(); }
   function fmtData(d){ if(!d) return '-'; const p=String(d).split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : d; }
   function moeda(n){ n=Number(n)||0; return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
   function num(v){ if(v===null||v===undefined) return 0; if(typeof v==='number') return isFinite(v)?v:0; let s=String(v).trim().replace(/R\$|\s/g,''); if(!s) return 0; if(s.includes(',')&&s.includes('.')) s=s.replace(/\./g,'').replace(',', '.'); else s=s.replace(',', '.'); const n=Number(s); return isFinite(n)?n:0; }
@@ -8771,7 +8920,12 @@ function salvarOrcamentoTopoSeguro(){
     return [...set].sort((a,b)=>a.localeCompare(b,'pt-BR'));
   }
   function hist(){ try{return JSON.parse(localStorage.getItem(KEY)||'[]')||[];}catch(e){return [];} }
-  function salvarHist(arr){ localStorage.setItem(KEY, JSON.stringify(Array.isArray(arr)?arr:[])); }
+  function salvarHist(arr){
+    const safe = Array.isArray(arr)?arr:[];
+    localStorage.setItem(KEY, JSON.stringify(safe));
+    try { if (window.location.protocol !== 'file:' && typeof supaSet === 'function') supaSet('baire_orcamentos_funcionarios', safe).catch(()=>{}); } catch(e) {}
+    try { if (window.location.protocol !== 'file:' && typeof salvarNuvem === 'function') setTimeout(()=>salvarNuvem().catch(()=>{}), 250); } catch(e) {}
+  }
 
   function valoresItem(item){
     const vals=[];
@@ -8978,7 +9132,7 @@ function salvarOrcamentoTopoSeguro(){
   window.baireFuncSalvarOrcamento=function(){
     const itens=linhas().map(i=>{ const c=calculaLinha(i); return {...i, status:c.status, cotacaoData:c.cot?.data||'', custoBaseInterno:c.custoUnit, vendaSugerida:c.sugerido, criadoEm:new Date().toISOString()}; });
     if(!itens.length){ alert('Inclua pelo menos um produto.'); return; }
-    const obj={id:Date.now(), data:qs('of-data')?.value||hojeISO(), cliente:normaliza(qs('of-cliente')?.value||''), funcionario:normaliza(qs('of-funcionario')?.value||''), itens, status:statusGeral(itens), criadoEm:new Date().toISOString()};
+    const obj={id:Date.now(), data:qs('of-data')?.value||hojeISO(), cliente:normaliza(qs('of-cliente')?.value||''), funcionario:normaliza(qs('of-funcionario')?.value||''), itens, status:statusGeral(itens), criadoEm:new Date().toISOString(), atualizadoEm:new Date().toISOString()};
     const arr=hist();
     arr.unshift(obj);
     salvarHist(arr);
@@ -9027,6 +9181,7 @@ function salvarOrcamentoTopoSeguro(){
     o.statusAdmin=decisao;
     o.aprovadoPor=aprovador;
     o.aprovadoEm=new Date().toISOString();
+    o.atualizadoEm=new Date().toISOString();
     salvarHist(arr);
     window.baireFuncRenderHistorico();
   };
@@ -9520,6 +9675,243 @@ function salvarOrcamentoTopoSeguro(){
     setTimeout(()=>{patchShowPage(); aplicarHooks();},3500);
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', initAuditoria); else setTimeout(initAuditoria,150);
+})();
+</script>
+
+
+
+<script id="baire-sync-real-cot-orc-aprov-audit">
+/* ============================================================
+   BAIRE — PATCH SINCRONIZAÇÃO REAL (01/06)
+   Corrige restauração/nuvem para módulos novos:
+   Cotações, Orçamento Vendedores, Aprovações e Auditoria.
+   ============================================================ */
+(function(){
+  const K_COT1='baire_cotacoes_fornecedores';
+  const K_COT2='cotacoesFornecedor';
+  const K_OF='baire_orcamentos_funcionarios';
+  const K_AUD='baire_auditoria';
+  const K_AUD_CLOUD='auditoria_sistema';
+  const K_USERS='baire_usuarios_sistema';
+  const K_USERS_CLOUD='usuarios_sistema';
+
+  function parseJSON(v, fallback){ try { if(v===undefined||v===null||v==='') return fallback; return typeof v==='string'?JSON.parse(v):v; } catch(e){ return fallback; } }
+  function arr(v){ return Array.isArray(v)?v:[]; }
+  function obj(v){ return v && typeof v==='object' && !Array.isArray(v) ? v : {}; }
+  function getLS(k, fallback){ return parseJSON(localStorage.getItem(k), fallback); }
+  function setLS(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  function norm(s){ return String(s||'').trim().toUpperCase(); }
+  function fromDados(dados, prop, keys, fallback){
+    if(dados && dados[prop] !== undefined) return dados[prop];
+    const ls = obj(dados && dados.localStorageFull);
+    for(const k of keys||[]){ if(ls[k] !== undefined) return parseJSON(ls[k], fallback); }
+    return fallback;
+  }
+  function mergeByKey(a,b,keyFn,dateFn){
+    const map=new Map();
+    const add=x=>{ if(!x || typeof x!=='object') return; const k=String(keyFn(x)); const old=map.get(k); const dx=Number(dateFn(x)||0); const dox=Number(old?dateFn(old):0); if(!old || dx>=dox) map.set(k,x); };
+    arr(a).forEach(add); arr(b).forEach(add);
+    return Array.from(map.values());
+  }
+  function mergeCot(a,b){
+    return mergeByKey(a,b,c=>c.id || ((c.data||'')+'|'+JSON.stringify(c.itens||[]).slice(0,240)), c=>new Date(c.atualizadoEm||c.data||0).getTime()).sort((x,y)=>String(y.data||'').localeCompare(String(x.data||'')));
+  }
+  function mergeOF(a,b){
+    if(typeof window.baireMergeOrcamentosVendedores==='function') return window.baireMergeOrcamentosVendedores(arr(a),arr(b));
+    return mergeByKey(a,b,o=>o.id || ((o.data||'')+'|'+(o.criadoEm||'')+'|'+(o.cliente||'')+'|'+JSON.stringify(o.itens||[]).slice(0,240)), o=>new Date(o.atualizadoEm||o.aprovadoEm||o.criadoEm||o.data||0).getTime()).sort((x,y)=>new Date(y.atualizadoEm||y.criadoEm||y.data||0)-new Date(x.atualizadoEm||x.criadoEm||x.data||0));
+  }
+  function mergeAud(a,b){
+    return mergeByKey(a,b,x=>x.id || [x.dataISO,x.usuario,x.modulo,x.acao,x.detalhe].join('|'), x=>new Date(x.dataISO||0).getTime()).sort((x,y)=>String(y.dataISO||'').localeCompare(String(x.dataISO||''))).slice(0,2000);
+  }
+  function mergeUsers(a,b){
+    const map=new Map();
+    arr(a).concat(arr(b)).forEach(u=>{ if(!u || !u.usuario) return; map.set(String(u.usuario).toLowerCase(), u); });
+    return Array.from(map.values());
+  }
+  async function subirModulosNovos(avisa=false){
+    if(window.location.protocol==='file:' || typeof supaSet!=='function') return false;
+    const cot=arr(getLS(K_COT1, getLS(K_COT2, [])));
+    const of=arr(getLS(K_OF, []));
+    const aud=arr(getLS(K_AUD, []));
+    const users=arr(getLS(K_USERS, []));
+    await supaSet('cotacoesFornecedor', cot);
+    await supaSet(K_OF, of);
+    await supaSet(K_AUD_CLOUD, aud);
+    await supaSet(K_USERS_CLOUD, users);
+    if(avisa) alert('✓ Cotações, Orçamento Vendedores, Aprovações e Auditoria enviados para a nuvem.');
+    return true;
+  }
+  async function baixarModulosNovos(avisa=false){
+    if(window.location.protocol==='file:' || typeof supaGet!=='function') return false;
+    const [cotCloud, ofCloud, audCloud, usersCloud] = await Promise.all([
+      supaGet('cotacoesFornecedor').catch(()=>[]),
+      supaGet(K_OF).catch(()=>[]),
+      supaGet(K_AUD_CLOUD).catch(()=>[]),
+      supaGet(K_USERS_CLOUD).catch(()=>[])
+    ]);
+    const cot=mergeCot(getLS(K_COT1, getLS(K_COT2, [])), arr(cotCloud));
+    setLS(K_COT1,cot); setLS(K_COT2,cot);
+    await supaSet('cotacoesFornecedor', cot).catch(()=>{});
+
+    const of=mergeOF(getLS(K_OF, []), arr(ofCloud));
+    setLS(K_OF,of); await supaSet(K_OF, of).catch(()=>{});
+
+    const aud=mergeAud(getLS(K_AUD, []), arr(audCloud));
+    setLS(K_AUD,aud); await supaSet(K_AUD_CLOUD, aud).catch(()=>{});
+
+    const users=mergeUsers(arr(usersCloud), getLS(K_USERS, []));
+    if(users.length){ setLS(K_USERS,users); await supaSet(K_USERS_CLOUD, users).catch(()=>{}); }
+
+    try{ if(typeof window.baireRenderHistoricoCotacoes==='function') window.baireRenderHistoricoCotacoes(); }catch(e){}
+    try{ if(typeof window.baireFuncRenderHistorico==='function') window.baireFuncRenderHistorico(); }catch(e){}
+    try{ if(typeof window.baireAprovRender==='function') window.baireAprovRender(); }catch(e){}
+    try{ if(typeof window.baireAuditoriaRender==='function') window.baireAuditoriaRender(); }catch(e){}
+    try{ if(typeof window.baireUserRender==='function') window.baireUserRender(); }catch(e){}
+    if(avisa) alert('✓ Módulos novos sincronizados da nuvem.');
+    return true;
+  }
+  window.baireSubirModulosNovosNuvem=subirModulosNovos;
+  window.baireBaixarModulosNovosNuvem=baixarModulosNovos;
+
+  // Patch do botão geral ☁️ Nuvem: depois da sync antiga, também sincroniza módulos novos.
+  const oldSync=window.sincronizarManual;
+  window.sincronizarManual=async function(){
+    let r;
+    if(typeof oldSync==='function') r=await oldSync.apply(this, arguments);
+    await baixarModulosNovos(false).catch(()=>{});
+    await subirModulosNovos(false).catch(()=>{});
+    try{ const b=document.getElementById('syncIndicator'); if(b){ b.textContent='✅ Sincronizado!'; setTimeout(()=>b.textContent='☁️ Nuvem',1800); } }catch(e){}
+    return r;
+  };
+
+  // Patch do backup: garante campos no topo e dentro do localStorageFull.
+  const oldExport=window.exportarDados;
+  window.exportarDados=function(){
+    try{
+      let localStorageFull={};
+      try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); localStorageFull[k]=localStorage.getItem(k); } }catch(e){}
+      const cot=arr(getLS(K_COT1, getLS(K_COT2, [])));
+      const of=arr(getLS(K_OF, []));
+      const aud=arr(getLS(K_AUD, []));
+      const users=arr(getLS(K_USERS, []));
+      localStorageFull[K_COT1]=JSON.stringify(cot); localStorageFull[K_COT2]=JSON.stringify(cot);
+      localStorageFull[K_OF]=JSON.stringify(of);
+      localStorageFull[K_AUD]=JSON.stringify(aud);
+      localStorageFull[K_USERS]=JSON.stringify(users);
+      let painelMensal={}, historicoOrcamentos=[];
+      try{ painelMensal=getLS('orc_pm',{}); }catch(e){}
+      try{ historicoOrcamentos=Array.isArray(window.orcHistory)?window.orcHistory:getLS('orc_history',[]); }catch(e){}
+      const dados={
+        versao:3,
+        data:new Date().toISOString(),
+        nfs: typeof nfs!=='undefined'?nfs:arr(getLS('toner_nfs',[])),
+        vendas: typeof vendas!=='undefined'?vendas:arr(getLS('toner_vendas',[])),
+        defeitos: typeof defeitos!=='undefined'?defeitos:arr(getLS('toner_defeitos',[])),
+        rascunho: typeof importVendas!=='undefined'?importVendas:arr(getLS('toner_import_rascunho',[])),
+        cotacoesFornecedor: cot,
+        orcamentosVendedores: of,
+        aprovacoes: of,
+        auditoria: aud,
+        usuariosSistema: users,
+        painelMensal,
+        historicoOrcamentos,
+        proximoOrcamento: typeof orcNum!=='undefined'?orcNum:Number(localStorage.getItem('orc_num')||1),
+        localStorageFull
+      };
+      const blob=new Blob([JSON.stringify(dados,null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob); const a=document.createElement('a');
+      a.href=url; a.download=`backup_baire_COMPLETO_${baireHojeLocalISO()}.json`; a.click(); URL.revokeObjectURL(url);
+    }catch(e){ if(typeof oldExport==='function') oldExport.apply(this, arguments); }
+  };
+
+  // Patch restauração: restaura também Cotações, Orçamento Vendedores, Aprovações, Auditoria e Usuários.
+  window.importarDados=function(input){
+    const file=input && input.files && input.files[0];
+    if(!file) return;
+    const reader=new FileReader();
+    reader.onload=async function(ev){
+      try{
+        const dados=JSON.parse(ev.target.result);
+        if(!dados || (!dados.versao && !dados.nfs && !dados.localStorageFull)) { alert('Arquivo inválido.'); return; }
+        if(!confirm(`Restaurar backup de ${String(dados.data||'').slice(0,10)||'data não informada'}?\nIsso vai substituir os dados deste navegador e subir para a nuvem quando estiver online.`)) return;
+
+        // Restaura localStorage completo primeiro
+        const lsf=obj(dados.localStorageFull);
+        Object.keys(lsf).forEach(k=>{ try{ localStorage.setItem(k, lsf[k]); }catch(e){} });
+
+        // Dados principais
+        const nfsBackup=arr(dados.nfs.length?dados.nfs:parseJSON(lsf.toner_nfs, []));
+        const vendasBackup=arr(dados.vendas&&dados.vendas.length?dados.vendas:parseJSON(lsf.toner_vendas, []));
+        const defeitosBackup=arr(dados.defeitos&&dados.defeitos.length?dados.defeitos:parseJSON(lsf.toner_defeitos, []));
+        const rascBackup=arr(dados.rascunho&&dados.rascunho.length?dados.rascunho:parseJSON(lsf.toner_import_rascunho, []));
+        try{ if(typeof nfs!=='undefined') nfs=nfsBackup; }catch(e){}
+        try{ if(typeof vendas!=='undefined') vendas=vendasBackup; }catch(e){}
+        try{ if(typeof defeitos!=='undefined') defeitos=defeitosBackup; }catch(e){}
+        try{ if(typeof importVendas!=='undefined') importVendas=rascBackup; }catch(e){}
+        setLS('toner_nfs',nfsBackup); setLS('toner_vendas',vendasBackup); setLS('toner_defeitos',defeitosBackup); setLS('toner_import_rascunho',rascBackup);
+
+        // Orçamento Admin
+        const pmBackup=obj(dados.painelMensal || dados.orc_pm || parseJSON(lsf.orc_pm, {}));
+        const histOrc=arr(dados.historicoOrcamentos || dados.orcHistory || parseJSON(lsf.orc_history, []));
+        setLS('orc_pm',pmBackup); setLS('orc_history',histOrc);
+        try{ if(typeof pmDados!=='undefined') pmDados=pmBackup; }catch(e){}
+        try{ if(typeof orcHistory!=='undefined') orcHistory=histOrc; }catch(e){}
+        const next=Number(dados.proximoOrcamento || lsf.orc_num || 1) || 1;
+        try{ if(typeof orcNum!=='undefined') orcNum=next; }catch(e){}
+        localStorage.setItem('orc_num', String(next));
+
+        // Módulos novos — pega do topo ou do localStorageFull
+        const cot=arr(dados.cotacoesFornecedor || parseJSON(lsf[K_COT1], parseJSON(lsf[K_COT2], [])));
+        setLS(K_COT1,cot); setLS(K_COT2,cot);
+        const of=arr(dados.orcamentosVendedores || dados.aprovacoes || parseJSON(lsf[K_OF], []));
+        setLS(K_OF,of);
+        const aud=arr(dados.auditoria || parseJSON(lsf[K_AUD], []));
+        setLS(K_AUD,aud);
+        const users=arr(dados.usuariosSistema || parseJSON(lsf[K_USERS], []));
+        if(users.length) setLS(K_USERS,users);
+
+        // Sobe tudo para nuvem quando online
+        if(window.location.protocol!=='file:' && typeof supaSet==='function'){
+          await supaSet('nfs',nfsBackup).catch(()=>{});
+          await supaSet('vendas',vendasBackup).catch(()=>{});
+          await supaSet('defeitos',defeitosBackup).catch(()=>{});
+          await supaSet('rascunho',rascBackup).catch(()=>{});
+          await supaSet('orc_history',histOrc).catch(()=>{});
+          await supaSet('orc_pm',pmBackup).catch(()=>{});
+          await supaSet('orc_num',next).catch(()=>{});
+          await supaSet('cotacoesFornecedor',cot).catch(()=>{});
+          await supaSet(K_OF,of).catch(()=>{});
+          await supaSet(K_AUD_CLOUD,aud).catch(()=>{});
+          if(users.length) await supaSet(K_USERS_CLOUD,users).catch(()=>{});
+        }
+
+        // Redesenha tudo
+        ['populaFiltros','normalizarVendas','renderMetrics','renderEstoque','renderVendas','renderMetricasDefeitos','renderDefeitos','pmBuild','paramAtualizarAuto','orcRH','orcCalc','orcAtualizarNumeroTela','baireRenderHistoricoCotacoes','baireFuncRenderHistorico','baireAprovRender','baireAuditoriaRender','baireUserRender'].forEach(fn=>{ try{ if(typeof window[fn]==='function') window[fn](); else if(typeof eval(fn)==='function') eval(fn)(); }catch(e){} });
+
+        alert(`✓ Backup restaurado e enviado para a nuvem.\nCotações: ${cot.length}\nOrçamentos Vendedores/Aprovações: ${of.length}\nAuditoria: ${aud.length}\nOrçamentos Admin: ${histOrc.length}`);
+        try{ input.value=''; }catch(e){}
+      }catch(err){ alert('Erro ao restaurar: '+err.message); }
+    };
+    reader.readAsText(file);
+  };
+
+  // Auditoria dos módulos novos
+  function audit(mod,acao,det){ try{ if(typeof window.baireAuditoriaRegistrar==='function') window.baireAuditoriaRegistrar(mod,acao,det||'','',''); }catch(e){} }
+  function wrap(name,mod,acao,detFn){
+    const old=window[name]; if(typeof old!=='function' || old.__syncRealWrapped) return;
+    const fn=function(){ const r=old.apply(this,arguments); try{ audit(mod,acao,typeof detFn==='function'?detFn.apply(this,arguments):''); }catch(e){}; return r; };
+    fn.__syncRealWrapped=true; window[name]=fn;
+  }
+  function applyAuditWraps(){
+    wrap('baireSalvarCotacao','COTAÇÕES','SALVOU COTAÇÃO',()=>{ try{return 'Produtos: '+arr(getLS(K_COT1,[])).slice(0,1).map(c=>arr(c.itens).map(i=>i.produto).join(', ')).join('');}catch(e){return '';} });
+    wrap('baireFuncSalvarOrcamento','ORÇAMENTO VENDEDORES','SALVOU ORÇAMENTO VENDEDOR',()=>document.getElementById('of-cliente')?.value||'');
+    wrap('baireFuncExcluir','ORÇAMENTO VENDEDORES','EXCLUIU ORÇAMENTO VENDEDOR',id=>'ID '+id);
+  }
+  setTimeout(applyAuditWraps,500); setTimeout(applyAuditWraps,1800); setTimeout(applyAuditWraps,4000);
+
+  // Ao carregar online, tenta puxar módulos novos também.
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>baixarModulosNovos(false),1200));
+  else setTimeout(()=>baixarModulosNovos(false),1200);
 })();
 </script>
 
