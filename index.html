@@ -4,8 +4,6 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Baire Controle Estoque 2026</title>
-<!-- AJUSTE 2026-06-02: base recomendada após comparação com GitHub; mantém data Brasil e sincronização de cotações/orçamentos -->
-<!-- AJUSTE 2026-06-01: sincronização de Cotações + Orçamento Vendedores via Supabase -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 14px; background: #f4f6f9; color: #222; }
@@ -42,9 +40,6 @@
   .badge-alert { background: #fee2e2; color: #991b1b; }
   .badge-ok { background: #dcfce7; color: #166534; }
   .badge-zero { background: #f3f4f6; color: #9ca3af; }
-  .badge-warn { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
-  .badge-pulse { animation: bairePulse 1.4s ease-in-out infinite; }
-  @keyframes bairePulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
 
   /* Inputs / Filtros */
   input[type=text], input[type=date], input[type=number], select {
@@ -182,17 +177,6 @@
 }
 </style>
 
-
-<script>
-// Data local Brasil (corrige virada UTC: evita gravar 02/06 quando no Brasil ainda é 01/06)
-function baireHojeLocalISO(){
-  const d = new Date();
-  const partes = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).formatToParts(d).reduce((acc,p)=>{ acc[p.type]=p.value; return acc; },{});
-  return `${partes.year}-${partes.month}-${partes.day}`;
-}
-</script>
 </head>
 <body>
 
@@ -3549,26 +3533,6 @@ function orcMergeHistorico(localHist, cloudHist){
   });
 }
 
-function baireMergeOrcamentosVendedores(localArr, cloudArr){
-  const map = new Map();
-  const add = o => {
-    if(!o || typeof o !== 'object') return;
-    const itensKey = JSON.stringify(o.itens || []).slice(0,260);
-    const key = String(o.id || [o.data || '', o.criadoEm || '', o.cliente || '', o.funcionario || '', itensKey].join('|'));
-    const antigo = map.get(key);
-    const da = new Date(o.atualizadoEm || o.aprovadoEm || o.criadoEm || o.data || 0).getTime() || 0;
-    const db = new Date(antigo?.atualizadoEm || antigo?.aprovadoEm || antigo?.criadoEm || antigo?.data || 0).getTime() || 0;
-    if(!antigo || da >= db) map.set(key, o);
-  };
-  (Array.isArray(cloudArr) ? cloudArr : []).forEach(add);
-  (Array.isArray(localArr) ? localArr : []).forEach(add);
-  return Array.from(map.values()).sort((a,b)=>{
-    const da = new Date(a.atualizadoEm || a.aprovadoEm || a.criadoEm || a.data || 0).getTime() || 0;
-    const db = new Date(b.atualizadoEm || b.aprovadoEm || b.criadoEm || b.data || 0).getTime() || 0;
-    return db - da;
-  });
-}
-
 function orcMergePainel(localPm, cloudPm){
   const out = Object.assign({}, cloudPm || {});
   Object.keys(localPm || {}).forEach(mk=>{
@@ -3599,14 +3563,6 @@ async function salvarNuvem() {
   await supaSet('orc_history', od.hist);
   await supaSet('orc_pm', od.pm);
   await supaSet('orc_num', od.num);
-  try {
-    const cots = JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores') || localStorage.getItem('cotacoesFornecedor') || '[]');
-    if (Array.isArray(cots)) await supaSet('cotacoesFornecedor', cots);
-  } catch(e) {}
-  try {
-    const of = JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios') || '[]');
-    if (Array.isArray(of)) await supaSet('baire_orcamentos_funcionarios', of);
-  } catch(e) {}
 }
 
 async function sincronizarManual() {
@@ -3662,10 +3618,10 @@ async function carregarNuvem() {
   try {
     // Timeout de 5 segundos para não travar o sistema
     const timeout = new Promise((_,reject) => setTimeout(()=>reject(new Error('timeout')), 5000));
-    const [nfsData, vendasData, defeitosData, rascunhoData, produtosData, orcHistData, orcPmData, orcNumData, cotacoesData, orcFuncData] = await Promise.race([
+    const [nfsData, vendasData, defeitosData, rascunhoData, produtosData, orcHistData, orcPmData, orcNumData] = await Promise.race([
       Promise.all([
         supaGet('nfs'), supaGet('vendas'), supaGet('defeitos'), supaGet('rascunho'), supaGet('produtos_ca'),
-        supaGet('orc_history'), supaGet('orc_pm'), supaGet('orc_num'), supaGet('cotacoesFornecedor'), supaGet('baire_orcamentos_funcionarios')
+        supaGet('orc_history'), supaGet('orc_pm'), supaGet('orc_num')
       ]),
       timeout.then(()=>{ throw new Error('timeout'); })
     ]);
@@ -3772,42 +3728,6 @@ async function carregarNuvem() {
     orcNum = Math.max(orcNumLocal || 1, numCloud || 1, maxHistNum || 1);
     localStorage.setItem('orc_num', String(orcNum));
     await supaSet('orc_num', orcNum).catch(()=>{});
-
-    // Sincroniza COTAÇÕES de todos os computadores (merge por id/data/produtos).
-    try {
-      const cotLocal = JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores') || localStorage.getItem('cotacoesFornecedor') || '[]');
-      const cotCloud = Array.isArray(cotacoesData) ? cotacoesData : [];
-      const mapCot = new Map();
-      const chaveCot = c => String(c?.id || ((c?.data||'') + '|' + JSON.stringify(c?.itens||[]).slice(0,180)));
-      const addCot = c => {
-        if(!c || typeof c !== 'object') return;
-        const k = chaveCot(c);
-        const antigo = mapCot.get(k);
-        const da = new Date(c.atualizadoEm || c.data || 0).getTime() || 0;
-        const db = new Date(antigo?.atualizadoEm || antigo?.data || 0).getTime() || 0;
-        if(!antigo || da >= db) mapCot.set(k, c);
-      };
-      (Array.isArray(cotCloud)?cotCloud:[]).forEach(addCot);
-      (Array.isArray(cotLocal)?cotLocal:[]).forEach(addCot);
-      const cotMerge = Array.from(mapCot.values()).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
-      localStorage.setItem('baire_cotacoes_fornecedores', JSON.stringify(cotMerge));
-      localStorage.setItem('cotacoesFornecedor', JSON.stringify(cotMerge));
-      await supaSet('cotacoesFornecedor', cotMerge).catch(()=>{});
-      if (typeof window.baireRenderHistoricoCotacoes === 'function') setTimeout(window.baireRenderHistoricoCotacoes, 100);
-    } catch(e) { console.warn('Falha ao sincronizar cotações:', e); }
-
-
-
-    // Sincroniza ORÇAMENTOS DOS VENDEDORES (aba Orçamento Vendedores) entre computadores.
-    try {
-      const ofLocal = JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios') || '[]');
-      const ofCloud = Array.isArray(orcFuncData) ? orcFuncData : [];
-      const ofMerge = baireMergeOrcamentosVendedores(ofLocal, ofCloud);
-      localStorage.setItem('baire_orcamentos_funcionarios', JSON.stringify(ofMerge));
-      await supaSet('baire_orcamentos_funcionarios', ofMerge).catch(()=>{});
-      if (typeof window.baireFuncRenderHistorico === 'function') setTimeout(window.baireFuncRenderHistorico, 100);
-      if (typeof window.baireAprovRender === 'function') setTimeout(window.baireAprovRender, 150);
-    } catch(e) { console.warn('Falha ao sincronizar orçamentos dos vendedores:', e); }
 
     // Salva tudo no localStorage como fallback
     localStorage.setItem('toner_nfs', JSON.stringify(nfs));
@@ -4020,7 +3940,7 @@ let _nfItemCount = 0;
 
 function openModalNF() {
   _nfItemCount = 0;
-  document.getElementById('nf_data').value = baireHojeLocalISO();
+  document.getElementById('nf_data').value = new Date().toISOString().split('T')[0];
   ['nf_nf','nf_ped','nf_ref','nf_fornecedor','nf_valor','nf_link'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('nf_itens_lista').innerHTML = '';
   document.getElementById('nfMsg').textContent = '';
@@ -4745,7 +4665,7 @@ function showPage(id) {
   if (id==='produtos') renderProdutos();
   if (id==='importar') carregarRascunhoImport();
   if (id==='vendas') {
-    document.getElementById('v_data').value = baireHojeLocalISO();
+    document.getElementById('v_data').value = new Date().toISOString().split('T')[0];
     document.querySelectorAll('[id^="listaProdutos"]').forEach(el=>{
       el.innerHTML = produtosUnicos().map(p=>`<option value="${p}">`).join('');
     });
@@ -5665,7 +5585,7 @@ const STATUS_LABEL = {
 };
 
 function openModalDefeito() {
-  const hoje = baireHojeLocalISO();
+  const hoje = new Date().toISOString().split('T')[0];
   document.getElementById('def_data').value = hoje;
   document.getElementById('def_data_venda').value = '';
   document.getElementById('def_data_analise').value = hoje;
@@ -5906,7 +5826,7 @@ function salvarDefeito() {
     dataCompra: dataCompraFinal,
     pedCompra: pedCompraFinal,
     loteId: parseInt(document.getElementById('def_lote_id')?.value||'0')||0,
-    historico: [{data: baireHojeLocalISO(), status, obs}]
+    historico: [{data: new Date().toISOString().split('T')[0], status, obs}]
   };
 
   // Verifica se é edição ou novo registro
@@ -6038,11 +5958,11 @@ function salvarDefStatus() {
   if (d) {
     d.status = status;
     if (status === 'enviado_fornecedor' && !d.dataEnvioFornecedor) {
-      d.dataEnvioFornecedor = baireHojeLocalISO();
+      d.dataEnvioFornecedor = new Date().toISOString().split('T')[0];
     }
     if (obs) d.obs = obs;
     d.historico = d.historico || [];
-    d.historico.push({data: baireHojeLocalISO(), status, obs});
+    d.historico.push({data: new Date().toISOString().split('T')[0], status, obs});
     salvarDefeitos();
     renderDefeitos();
     renderMetricasDefeitos();
@@ -6104,7 +6024,7 @@ function obterIdsDefeitosSelecionados() {
 
 function aplicarStatusDefeitosPorIds(ids, origemTexto) {
   const novoStatus = normalizarStatusDefeito(document.getElementById('defStatusLote')?.value || '');
-  const dataEnvioInformada = document.getElementById('defDataEnvioLote')?.value || baireHojeLocalISO();
+  const dataEnvioInformada = document.getElementById('defDataEnvioLote')?.value || new Date().toISOString().split('T')[0];
 
   if (!novoStatus) { alert('Escolha o novo status antes de aplicar.'); return; }
   if (!ids.length) { alert('Nenhum registro selecionado.'); return; }
@@ -6121,7 +6041,7 @@ function aplicarStatusDefeitosPorIds(ids, origemTexto) {
       if (novoStatus === 'enviado_fornecedor') d.dataEnvioFornecedor = dataEnvioInformada;
       d.historico = d.historico || [];
       d.historico.push({
-        data: baireHojeLocalISO(),
+        data: new Date().toISOString().split('T')[0],
         status: novoStatus,
         dataEnvioFornecedor: novoStatus === 'enviado_fornecedor' ? dataEnvioInformada : (d.dataEnvioFornecedor || ''),
         obs: origemTexto === 'selecionado(s)' ? 'Alteração em lote dos itens selecionados' : 'Alteração em lote pelos filtros da tela'
@@ -6134,7 +6054,7 @@ function aplicarStatusDefeitosPorIds(ids, origemTexto) {
   try { localStorage.setItem('toner_defeitos', JSON.stringify(defeitos)); } catch(e) {}
   document.getElementById('defStatusLote').value = '';
   const dataLote = document.getElementById('defDataEnvioLote');
-  if (dataLote) dataLote.value = baireHojeLocalISO();
+  if (dataLote) dataLote.value = new Date().toISOString().split('T')[0];
   const filtroStatus = document.getElementById('filtroDefStatus');
   if (filtroStatus) filtroStatus.value = '';
   const chkTodos = document.getElementById('chkDefTodos');
@@ -6856,7 +6776,7 @@ function exportarDados() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `backup_baire_COMPLETO_${baireHojeLocalISO()}.json`;
+  a.download = `backup_baire_COMPLETO_${new Date().toISOString().split('T')[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -7031,7 +6951,7 @@ function exportarLocalStorageCompleto() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `backup_localstorage_baire_${baireHojeLocalISO()}.json`;
+  a.download = `backup_localstorage_baire_${new Date().toISOString().split('T')[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -7339,7 +7259,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
           </tr></tfoot>
         </table>
       </div>
-      <div class="orc-note">ⓘ Venda sugerida calculada com base nos parâmetros MÍNIMO / IDEAL do Painel / Parâmetros.</div>
+      <div class="orc-note">ⓘ Venda sugerida calculada com base nos parâmetros do Painel / Parâmetros.</div>
       <div class="orc-tip">💡 Dica: altere quantidades ou valores de venda para simular cenários e ver o impacto nos índices em tempo real.</div>
       <div class="orc-actions">
         <button class="btn-secondary" onclick="orcCalc()">↻ Recalcular</button>
@@ -7507,22 +7427,22 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 <!-- ===== PARÂMETROS ===== -->
 <div class="orc-subpage" id="oparam">
   <div class="param-card">
-    <h3 style="font-size:14px;font-weight:600;color:#1a3a5c;margin-bottom:8px;margin-top:0">Bases de aprovação — Mínimo e Ideal</h3>
-    <p style="font-size:13px;color:#64748b;margin-bottom:8px">A aprovação usa dois parâmetros claros: mínimo e ideal por venda; mínimo e ideal por toner. Os valores não foram alterados.</p>
-    <div class="param-auto-note">🔒 Parâmetros mantidos: mínimo por venda R$ 70, ideal por venda R$ 110; mínimo por toner R$ 25, ideal por toner R$ 37.</div>
-    <div class="param-row"><div class="pnum">1</div><div class="pdesc">MÍNIMO POR VENDA</div><div id="pp1-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
-    <div class="param-row"><div class="pnum">2</div><div class="pdesc">IDEAL POR VENDA</div><div id="pp2-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
-    <div class="param-row"><div class="pnum">3</div><div class="pdesc">MÍNIMO POR TONER</div><div id="pp3-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
-    <div class="param-row"><div class="pnum">4</div><div class="pdesc">IDEAL POR TONER</div><div id="pp4-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
+    <h3 style="font-size:14px;font-weight:600;color:#1a3a5c;margin-bottom:8px;margin-top:0">Bases de aprovação por sobra operacional</h3>
+    <p style="font-size:13px;color:#64748b;margin-bottom:8px">A aprovação agora protege a retirada mínima pela sobra operacional: primeiro avalia o lucro por venda; se a venda for pequena, faz a segunda análise pelo lucro por toner.</p>
+    <div class="param-auto-note">🔒 Parâmetros de teste definidos pela análise: lucro por venda mínimo R$ 70, ideal R$ 110; lucro por toner mínimo R$ 25, ideal R$ 37.</div>
+    <div class="param-row"><div class="pnum">1</div><div class="pdesc">Lucro mínimo por venda</div><div id="pp1-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
+    <div class="param-row"><div class="pnum">2</div><div class="pdesc">Lucro ideal por venda</div><div id="pp2-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
+    <div class="param-row"><div class="pnum">3</div><div class="pdesc">Lucro mínimo por toner</div><div id="pp3-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
+    <div class="param-row"><div class="pnum">4</div><div class="pdesc">Lucro ideal por toner</div><div id="pp4-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
     <div class="param-row"><div class="pnum">5</div><div class="pdesc">Observação</div><div id="pp5-wrap" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b"></div></div>
   </div>
   <div class="param-card">
     <h3 style="font-size:14px;font-weight:600;color:#1a3a5c;margin-bottom:14px;margin-top:0">Legenda</h3>
     <div style="display:flex;flex-direction:column;gap:8px">
-      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#dcfce7;border:1px solid #86efac"><span style="font-size:13px;font-weight:600;color:#166534;min-width:140px">🔵 Excelente (5/5)</span><span style="font-size:13px;color:#166534">Acima do ideal por venda</span></div>
-      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#d1fae5;border:1px solid #6ee7b7"><span style="font-size:13px;font-weight:600;color:#065f46;min-width:140px">✅ Aprovado (4/5)</span><span style="font-size:13px;color:#065f46">Entre mínimo e ideal</span></div>
-      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#fef3c7;border:1px solid #fcd34d"><span style="font-size:13px;font-weight:600;color:#92400e;min-width:140px">⚠️ Atenção (3/5)</span><span style="font-size:13px;color:#92400e">Atenção: conferir mínimo por toner</span></div>
-      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#fee2e2;border:1px solid #fca5a5"><span style="font-size:13px;font-weight:600;color:#991b1b;min-width:140px">🔒 Risco</span><span style="font-size:13px;color:#991b1b">Abaixo do mínimo definido para o padrão mínimo</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#dcfce7;border:1px solid #86efac"><span style="font-size:13px;font-weight:600;color:#166534;min-width:140px">🔵 Excelente (5/5)</span><span style="font-size:13px;color:#166534">Lucro por venda acima do ideal</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#d1fae5;border:1px solid #6ee7b7"><span style="font-size:13px;font-weight:600;color:#065f46;min-width:140px">✅ Aprovado (4/5)</span><span style="font-size:13px;color:#065f46">Aprovação pela sobra operacional</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#fef3c7;border:1px solid #fcd34d"><span style="font-size:13px;font-weight:600;color:#92400e;min-width:140px">⚠️ Atenção (3/5)</span><span style="font-size:13px;color:#92400e">Venda depende da análise por toner</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:6px;background:#fee2e2;border:1px solid #fca5a5"><span style="font-size:13px;font-weight:600;color:#991b1b;min-width:140px">🔒 Risco</span><span style="font-size:13px;color:#991b1b">Lucro insuficiente para o padrão mínimo</span></div>
     </div>
   </div>
 </div>
@@ -7538,7 +7458,7 @@ window.orcamentoHistoricoAbertoIdx = null;
 function oF(v){return 'R$\u00a0'+Math.abs(v).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');}
 function oFS(v){return(v<0?'- ':'')+oF(v);}
 function oP(v,t){return t>0?(v/t*100).toFixed(1)+'%':'—';}
-function oH(){return baireHojeLocalISO();}
+function oH(){return new Date().toISOString().slice(0,10);}
 function oEl(id){return document.getElementById(id);}
 function oSV(id,v){const e=oEl(id);if(e)e.textContent=v;}
 
@@ -7787,11 +7707,11 @@ function orcCA(tC,tV,ln,nfv,ent,qtd){
   const entPct=tV>0?ent/tV*100:0;
   const lucroVenda=ln;
   const lucroToner=(qtd&&qtd>0)?ln/qtd:0;
-  let grade=0,score=0,status='RISCO',motivo='Lucro por venda abaixo de R$ '+p.lucroVendaMin.toFixed(2).replace('.',',')+' e mínimo/ideal por toner abaixo de R$ '+p.lucroTonerMin.toFixed(2).replace('.',',');
-  if(lucroVenda>=p.lucroVendaIdeal){grade=3;score=3;status='EXCELENTE';motivo='Acima do ideal por venda de R$ '+p.lucroVendaIdeal.toFixed(2).replace('.',',');}
+  let grade=0,score=0,status='RISCO',motivo='Lucro por venda abaixo de R$ '+p.lucroVendaMin.toFixed(2).replace('.',',')+' e lucro por toner abaixo de R$ '+p.lucroTonerMin.toFixed(2).replace('.',',');
+  if(lucroVenda>=p.lucroVendaIdeal){grade=3;score=3;status='EXCELENTE';motivo='Lucro por venda acima do ideal de R$ '+p.lucroVendaIdeal.toFixed(2).replace('.',',');}
   else if(lucroVenda>=p.lucroVendaMin){grade=2;score=2;status='APROVADO';motivo='Lucro por venda acima do mínimo de R$ '+p.lucroVendaMin.toFixed(2).replace('.',',');}
   else if(lucroToner>=p.lucroTonerIdeal){grade=2;score=2;status='APROVADO';motivo='Venda pequena, mas saudável por toner: acima de R$ '+p.lucroTonerIdeal.toFixed(2).replace('.',',');}
-  else if(lucroToner>=p.lucroTonerMin){grade=1;score=1;status='ATENÇÃO';motivo='Lucro por venda baixo; mínimo/ideal por toner está na faixa de atenção.';}
+  else if(lucroToner>=p.lucroTonerMin){grade=1;score=1;status='ATENÇÃO';motivo='Lucro por venda baixo; lucro por toner está na faixa de atenção.';}
   return{score,grade,status,motivo,mg,tonerPct,nfPct,entPct,lucroVenda,lucroToner,
     i1:lucroVenda>=p.lucroVendaMin,
     i2:lucroVenda>=p.lucroVendaIdeal,
@@ -7863,7 +7783,7 @@ function orcCalc(){
     }
     if(ib){
       const row=(ok,nome,val,min,inv)=>'<div class="orc-index-row"><div class="orc-index-name"><span class="orc-dot" style="background:'+(ok?'#059669':'#dc2626')+'"></span>'+nome+'</div><div class="orc-index-val" style="color:'+(ok?'#059669':'#dc2626')+'">'+val+'</div><div class="orc-index-min">'+(inv?'máx. ':'mín. ')+min+'</div><div style="text-align:right;color:'+(ok?'#059669':'#dc2626')+';font-weight:900">'+(ok?'✓':'×')+'</div></div>';
-      ib.innerHTML=row(lucroVenda>=lucroVendaMin,'Lucro mínimo por venda',oFS(lucroVenda),oF(lucroVendaMin),false)+row(lucroVenda>=lucroVendaIdeal,'Ideal por venda',oFS(lucroVenda),oF(lucroVendaIdeal),false)+row(lucroToner>=lucroTonerMin,'Lucro mínimo por toner',oFS(lucroToner),oF(lucroTonerMin),false)+row(lucroToner>=lucroTonerIdeal,'Ideal por toner',oFS(lucroToner),oF(lucroTonerIdeal),false);
+      ib.innerHTML=row(lucroVenda>=lucroVendaMin,'Lucro operacional por venda',oFS(lucroVenda),oF(lucroVendaMin),false)+row(lucroVenda>=lucroVendaIdeal,'Ideal por venda',oFS(lucroVenda),oF(lucroVendaIdeal),false)+row(lucroToner>=lucroTonerMin,'Lucro operacional por toner',oFS(lucroToner),oF(lucroTonerMin),false)+row(lucroToner>=lucroTonerIdeal,'Ideal por toner',oFS(lucroToner),oF(lucroTonerIdeal),false);
     }
     if(sg){
       sg.style.display='block';
@@ -8467,1452 +8387,6 @@ function salvarOrcamentoTopoSeguro(){
     alert('Erro ao salvar orçamento: ' + (e.message || e));
   }
 }
-</script>
-
-<script>
-/* ============================================================
-   BAIRE — MÓDULO COTAÇÕES FORNECEDORES v2
-   - Aba Cotações com histórico visível abaixo
-   - Produtos/SKU vêm da aba Produtos (PRODUTOS_CA)
-   - Orçamento usa MAIOR valor cotado; se não houver, fica digitável
-   - Backup passa a levar cotacoesFornecedor
-   ============================================================ */
-(function(){
-  const KEY = 'baire_cotacoes_fornecedores';
-  const KEY2 = 'cotacoesFornecedor';
-  const FORNECEDORES_PADRAO = ['TF','CANAL VERDE','VIA LASER','ATACADÃO','CASA FORTE','MASTER CAMP','MAGAZINE LUIZA','VERIFICAR'];
-  let cotEditId = null;
-
-  function qs(id){ return document.getElementById(id); }
-  function hojeISO(){ return baireHojeLocalISO(); }
-  function normaliza(txt){ return String(txt||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
-  function esc(s){ return String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
-  function fmtData(d){ if(!d) return '-'; const p=String(d).split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : d; }
-  function moeda(n){ n=Number(n)||0; return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
-  function numBR(v){
-    if(v===null || v===undefined) return 0;
-    if(typeof v==='number') return isFinite(v)?v:0;
-    let s=String(v).trim().replace(/R\$|\s/g,'');
-    if(!s) return 0;
-    if(s.includes(',') && s.includes('.')) s=s.replace(/\./g,'').replace(',', '.');
-    else s=s.replace(',', '.');
-    const n=Number(s); return isFinite(n)?n:0;
-  }
-
-  function cotacoes(){
-    try {
-      let arr=JSON.parse(localStorage.getItem(KEY)||'null');
-      if(!Array.isArray(arr)) arr=JSON.parse(localStorage.getItem(KEY2)||'[]');
-      return Array.isArray(arr)?arr:[];
-    } catch(e){ return []; }
-  }
-  function salvarCotacoes(arr){
-    arr = Array.isArray(arr) ? arr : [];
-    localStorage.setItem(KEY, JSON.stringify(arr));
-    localStorage.setItem(KEY2, JSON.stringify(arr));
-    // Salva cotações na nuvem automaticamente quando estiver online.
-    try { if (window.location.protocol !== 'file:') baireCotacoesSubirNuvem(false); } catch(e) {}
-  }
-  function mergeCotacoes(localArr, cloudArr){
-    const map = new Map();
-    const key = c => String(c?.id || ((c?.data||'') + '|' + JSON.stringify(c?.itens||[]).slice(0,180)));
-    const add = c => {
-      if(!c || typeof c !== 'object') return;
-      const k = key(c);
-      const antigo = map.get(k);
-      const da = new Date(c.atualizadoEm || c.data || 0).getTime() || 0;
-      const db = new Date(antigo?.atualizadoEm || antigo?.data || 0).getTime() || 0;
-      if(!antigo || da >= db) map.set(k,c);
-    };
-    (Array.isArray(cloudArr)?cloudArr:[]).forEach(add);
-    (Array.isArray(localArr)?localArr:[]).forEach(add);
-    return Array.from(map.values()).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
-  }
-  window.baireCotacoesSubirNuvem = async function(avisa=true){
-    try{
-      if(window.location.protocol === 'file:'){ if(avisa) alert('Arquivo local: abra o sistema online para sincronizar cotações.'); return false; }
-      if(typeof supaGet !== 'function' || typeof supaSet !== 'function'){ if(avisa) alert('Nuvem não disponível nesta versão.'); return false; }
-      const local = cotacoes();
-      const cloud = await supaGet('cotacoesFornecedor');
-      const merged = mergeCotacoes(local, Array.isArray(cloud)?cloud:[]);
-      localStorage.setItem(KEY, JSON.stringify(merged));
-      localStorage.setItem(KEY2, JSON.stringify(merged));
-      await supaSet('cotacoesFornecedor', merged);
-      if(typeof window.baireRenderHistoricoCotacoes === 'function') window.baireRenderHistoricoCotacoes();
-      if(avisa) alert('✓ Cotações sincronizadas na nuvem.');
-      return true;
-    }catch(e){ console.warn(e); if(avisa) alert('Erro ao sincronizar cotações: '+(e.message||e)); return false; }
-  };
-  window.baireCotacoesBaixarNuvem = async function(avisa=true){
-    try{
-      if(window.location.protocol === 'file:'){ if(avisa) alert('Arquivo local: abra o sistema online para baixar cotações.'); return false; }
-      if(typeof supaGet !== 'function' || typeof supaSet !== 'function'){ if(avisa) alert('Nuvem não disponível nesta versão.'); return false; }
-      const cloud = await supaGet('cotacoesFornecedor');
-      const merged = mergeCotacoes(cotacoes(), Array.isArray(cloud)?cloud:[]);
-      localStorage.setItem(KEY, JSON.stringify(merged));
-      localStorage.setItem(KEY2, JSON.stringify(merged));
-      await supaSet('cotacoesFornecedor', merged);
-      if(typeof window.baireRenderHistoricoCotacoes === 'function') window.baireRenderHistoricoCotacoes();
-      if(avisa) alert('✓ Cotações baixadas/sincronizadas.');
-      return true;
-    }catch(e){ console.warn(e); if(avisa) alert('Erro ao baixar cotações: '+(e.message||e)); return false; }
-  };
-  window.baireBackupCotacoes = function(){
-    const dados={versao:1,tipo:'cotacoesFornecedor',data:new Date().toISOString(),cotacoesFornecedor:cotacoes()};
-    const blob=new Blob([JSON.stringify(dados,null,2)],{type:'application/json'});
-    const url=URL.createObjectURL(blob); const a=document.createElement('a');
-    a.href=url; a.download=`backup_cotacoes_baire_${baireHojeLocalISO()}.json`; a.click(); URL.revokeObjectURL(url);
-  };
-  window.baireCotacoes = cotacoes;
-
-  function listaProdutosCatalogo(){
-    const set=new Set();
-    try { if(typeof PRODUTOS_CA !== 'undefined' && Array.isArray(PRODUTOS_CA)) PRODUTOS_CA.forEach(p=>{ if(p && p.sku) set.add(String(p.sku).trim()); }); } catch(e){}
-    try { if(typeof nfs !== 'undefined' && Array.isArray(nfs)) nfs.forEach(n=>{ if(n && n.produto) set.add(String(n.produto).trim()); }); } catch(e){}
-    return [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,'pt-BR'));
-  }
-  window.baireListaProdutosCatalogo = listaProdutosCatalogo;
-
-  function fornecedoresTodos(){
-    const set=new Set(FORNECEDORES_PADRAO);
-    try { if(typeof nfs !== 'undefined' && Array.isArray(nfs)) nfs.forEach(n=>{ if(n && n.fornecedor) set.add(normaliza(n.fornecedor)); }); } catch(e){}
-    cotacoes().forEach(c=>{ (c.fornecedores||[]).forEach(f=>set.add(normaliza(f))); });
-    return [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,'pt-BR'));
-  }
-  function fornSelecionados(){ return [...document.querySelectorAll('#cot-fornecedores input:checked')].map(i=>normaliza(i.value)); }
-  function valoresItem(item){
-    const vals=[];
-    Object.entries(item?.valores||{}).forEach(([f,v])=>{ const n=numBR(v); if(n>0) vals.push({fornecedor:normaliza(f),valor:n}); });
-    return vals;
-  }
-  function maiorValorCotado(produto){
-    const alvo=normaliza(produto); let melhor=null;
-    cotacoes().forEach(c=>{
-      (c.itens||[]).forEach(item=>{
-        if(normaliza(item.produto)!==alvo) return;
-        valoresItem(item).forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor, fornecedor:v.fornecedor, data:c.data||'', cotacaoId:c.id||''}; });
-      });
-    });
-    return melhor;
-  }
-  window.baireMaiorValorCotado = maiorValorCotado;
-
-  function criarAbaCotacoes(){
-    if(qs('page-cotacoes')) return;
-    const tabs=document.querySelector('.tabs');
-    if(tabs){
-      const t=document.createElement('div');
-      t.className='tab';
-      t.setAttribute('data-baire-cotacoes-tab','1');
-      t.onclick=()=>showPage('cotacoes');
-      t.textContent='💲 Cotações';
-      const orc=[...tabs.querySelectorAll('.tab')].find(x=>x.textContent.toLowerCase().includes('orçamento'));
-      tabs.insertBefore(t, orc || null);
-    }
-    const page=document.createElement('div');
-    page.id='page-cotacoes';
-    page.className='page';
-    page.innerHTML=`
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>💲 Cotações por Fornecedor</h2>
-            <div class="help">Produto vem da aba Produtos/SKU. Cada cotação fica salva no histórico abaixo.</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn-secondary" onclick="baireNovaCotacao()">Nova cotação</button>
-            <button class="btn-green" onclick="baireSalvarCotacao()">Salvar cotação</button>
-            <button class="btn-primary" onclick="baireCotacoesBaixarNuvem(true)">☁️ Sincronizar cotações</button>
-            <button class="btn-secondary" onclick="baireBackupCotacoes()">💾 Backup cotações</button>
-          </div>
-        </div>
-        <div style="padding:16px">
-          <div class="form-grid" style="grid-template-columns:180px 1fr">
-            <div class="form-group"><label>Data da cotação</label><input type="date" id="cot-data"></div>
-            <div class="form-group"><label>Fornecedores participantes</label><div id="cot-fornecedores" style="display:flex;gap:8px;flex-wrap:wrap"></div></div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;margin:16px 0;flex-wrap:wrap">
-            <button class="btn-primary" onclick="baireAddLinhaCotacao()">+ Produto</button>
-            <span class="help">Produto e observação ficam em MAIÚSCULO. Valores ficam por fornecedor.</span>
-          </div>
-          <datalist id="cot-produtos-lista"></datalist>
-          <div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:8px">
-            <table id="cot-tabela" style="min-width:900px"><thead id="cot-head"></thead><tbody id="cot-body"></tbody></table>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-header">
-          <h2>Histórico de Cotações</h2>
-          <div class="search-wrap"><input type="text" id="cot-busca" placeholder="Buscar produto/fornecedor..." oninput="baireRenderHistoricoCotacoes()"></div>
-        </div>
-        <div style="overflow-x:auto"><table><thead><tr><th>Data</th><th>Produtos</th><th>Fornecedores</th><th>Itens</th><th>Ações</th></tr></thead><tbody id="cot-hist"></tbody></table></div>
-      </div>`;
-    document.body.insertBefore(page, document.body.querySelector('script:last-of-type') || null);
-  }
-
-  function atualizarDatalistProdutos(){
-    const dl=qs('cot-produtos-lista'); if(!dl) return;
-    dl.innerHTML=listaProdutosCatalogo().map(p=>`<option value="${esc(p)}"></option>`).join('');
-  }
-  function renderFornecedores(){
-    const div=qs('cot-fornecedores'); if(!div) return;
-    const marcados=new Set(fornSelecionados());
-    div.innerHTML='';
-    fornecedoresTodos().forEach(f=>{
-      const lab=document.createElement('label');
-      lab.style.cssText='display:inline-flex;align-items:center;gap:5px;background:#f8fafc;border:1px solid #d1d5db;border-radius:999px;padding:6px 10px;font-size:12px;cursor:pointer';
-      lab.innerHTML=`<input type="checkbox" value="${esc(f)}" onchange="baireRenderCotTabela()" ${marcados.has(f)?'checked':''}> ${esc(f)}`;
-      div.appendChild(lab);
-    });
-  }
-  function linhasAtuais(){
-    return [...document.querySelectorAll('#cot-body tr')].map(tr=>{
-      const produto=tr.querySelector('.cot-prod')?.value?.trim()||'';
-      const qtd=numBR(tr.querySelector('.cot-qtd')?.value||0);
-      const obs=tr.querySelector('.cot-obs')?.value?.trim()||'';
-      const valores={};
-      tr.querySelectorAll('.cot-valor').forEach(inp=>{ valores[normaliza(inp.dataset.forn)] = numBR(inp.value); });
-      return {produto, qtd, valores, obs};
-    }).filter(x=>x.produto || x.qtd || Object.values(x.valores).some(v=>v>0) || x.obs);
-  }
-  function montarLinha(item={}){
-    const tr=document.createElement('tr');
-    const forn=fornSelecionados();
-    tr.innerHTML=`<td style="min-width:230px"><input class="cot-prod" list="cot-produtos-lista" type="text" value="${esc(item.produto||'')}" placeholder="PRODUTO/SKU" style="width:100%"></td>
-      <td style="width:100px"><input class="cot-qtd" type="number" min="0" step="1" value="${item.qtd||''}" style="width:100%;text-align:right"></td>
-      ${forn.map(f=>`<td style="width:120px"><input class="cot-valor" data-forn="${esc(f)}" type="number" min="0" step="0.01" value="${numBR(item.valores?.[f]||0)||''}" style="width:100%;text-align:right"></td>`).join('')}
-      <td style="min-width:160px"><input class="cot-obs" type="text" value="${esc(item.obs||'')}" placeholder="OBS." style="width:100%"></td>
-      <td style="width:76px;text-align:center"><button class="btn-danger btn-sm" onclick="this.closest('tr').remove()">Excluir</button></td>`;
-    return tr;
-  }
-  window.baireRenderCotTabela=function(){
-    atualizarDatalistProdutos();
-    const antigas=linhasAtuais();
-    const head=qs('cot-head'), body=qs('cot-body'); if(!head||!body) return;
-    const forn=fornSelecionados();
-    head.innerHTML=`<tr><th style="min-width:230px">Produto</th><th style="width:100px;text-align:right">Quantidade</th>${forn.map(f=>`<th style="text-align:right">${esc(f)}</th>`).join('')}<th>Observação</th><th>Ações</th></tr>`;
-    body.innerHTML='';
-    if(!antigas.length) antigas.push({});
-    antigas.forEach(item=>body.appendChild(montarLinha(item)));
-  };
-  window.baireAddLinhaCotacao=function(){ const body=qs('cot-body'); if(body) body.appendChild(montarLinha({})); };
-  window.baireNovaCotacao=function(){
-    cotEditId=null;
-    if(qs('cot-data')) qs('cot-data').value=hojeISO();
-    renderFornecedores();
-    document.querySelectorAll('#cot-fornecedores input').forEach(i=>{ i.checked=['TF','CANAL VERDE','VIA LASER','ATACADÃO'].includes(normaliza(i.value)); });
-    // Limpa a tela da cotação anterior para começar uma nova, sem apagar o histórico salvo.
-    const body=qs('cot-body');
-    if(body) body.innerHTML='';
-    const head=qs('cot-head');
-    const forn=fornSelecionados();
-    if(head) head.innerHTML=`<tr><th style="min-width:230px">Produto</th><th style="width:100px;text-align:right">Quantidade</th>${forn.map(f=>`<th style="text-align:right">${esc(f)}</th>`).join('')}<th>Observação</th><th>Ações</th></tr>`;
-    if(body) body.appendChild(montarLinha({}));
-    atualizarDatalistProdutos();
-    window.baireRenderHistoricoCotacoes();
-  };
-  window.baireSalvarCotacao=async function(){
-    const data=qs('cot-data')?.value || hojeISO();
-    const fornecedores=fornSelecionados();
-    const itens=linhasAtuais().map(x=>({produto:normaliza(x.produto),qtd:x.qtd,valores:x.valores,obs:normaliza(x.obs)})).filter(x=>x.produto);
-    if(!fornecedores.length){ alert('Selecione pelo menos um fornecedor.'); return; }
-    if(!itens.length){ alert('Inclua pelo menos um produto na cotação.'); return; }
-
-    // Monta registro novo/edição e grava primeiro LOCALMENTE.
-    let arr=cotacoes();
-    const obj={id:cotEditId||Date.now(), data, fornecedores, itens, atualizadoEm:new Date().toISOString(), criadoPor:(window.usuarioLogado?.nome||window.usuarioLogado?.usuario||'')};
-    const idx=arr.findIndex(c=>String(c.id)===String(obj.id));
-    if(idx>=0) arr[idx]=obj; else arr.unshift(obj);
-    arr = mergeCotacoes(arr, []);
-
-    // Grava nos dois nomes usados pelo sistema para evitar divergência entre telas/dispositivos.
-    localStorage.setItem(KEY, JSON.stringify(arr));
-    localStorage.setItem(KEY2, JSON.stringify(arr));
-
-    // Limpa busca para não esconder a cotação recém-salva e renderiza imediatamente.
-    if(qs('cot-busca')) qs('cot-busca').value='';
-    cotEditId=obj.id;
-    window.baireRenderHistoricoCotacoes();
-    setTimeout(window.baireRenderHistoricoCotacoes, 100);
-
-    // Tenta sincronizar com a nuvem e depois renderiza de novo. Se a nuvem falhar, o histórico local continua visível.
-    let okNuvem=false;
-    try { okNuvem = await baireCotacoesSubirNuvem(false); } catch(e) { okNuvem=false; }
-    window.baireRenderHistoricoCotacoes();
-
-    const prods = itens.map(i=>i.produto).join(', ');
-    alert(okNuvem ? ('✓ Cotação salva no histórico e sincronizada na nuvem: '+prods) : ('✓ Cotação salva no histórico local. ATENÇÃO: não consegui confirmar a nuvem agora: '+prods));
-  };
-  window.baireRenderHistoricoCotacoes=function(){
-    const tb=qs('cot-hist'); if(!tb) return;
-    const q=normaliza(qs('cot-busca')?.value||'');
-    let arr=cotacoes();
-    if(q) arr=arr.filter(c=>normaliza(JSON.stringify(c)).includes(q));
-    if(!arr.length){ tb.innerHTML='<tr><td colspan="5" class="empty">Nenhuma cotação salva ainda.</td></tr>'; return; }
-    tb.innerHTML=arr.map(c=>{
-      const produtos=[...new Set((c.itens||[]).map(i=>i.produto))].slice(0,6).join(', ');
-      const fornecedores=(c.fornecedores||[]).join(', ');
-      return `<tr><td>${fmtData(c.data)}</td><td style="max-width:380px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(produtos)}">${esc(produtos||'-')}</td><td>${esc(fornecedores||'-')}</td><td style="text-align:right">${(c.itens||[]).length}</td><td style="white-space:nowrap"><button class="btn-secondary btn-sm" onclick="baireAbrirCotacao(${c.id})">Abrir</button> <button class="btn-danger btn-sm" onclick="baireExcluirCotacao(${c.id})">Excluir</button></td></tr>`;
-    }).join('');
-  };
-  window.baireAbrirCotacao=function(id){
-    const c=cotacoes().find(x=>String(x.id)===String(id)); if(!c) return;
-    cotEditId=c.id;
-    if(qs('cot-data')) qs('cot-data').value=c.data||hojeISO();
-    renderFornecedores();
-    document.querySelectorAll('#cot-fornecedores input').forEach(i=>{ i.checked=(c.fornecedores||[]).map(normaliza).includes(normaliza(i.value)); });
-    window.baireRenderCotTabela();
-    const body=qs('cot-body'); if(body){ body.innerHTML=''; (c.itens||[]).forEach(item=>body.appendChild(montarLinha(item))); }
-    if(typeof showPage==='function') showPage('cotacoes');
-  };
-  window.baireExcluirCotacao=function(id){
-    if(!confirm('Excluir esta cotação?')) return;
-    salvarCotacoes(cotacoes().filter(c=>String(c.id)!==String(id)));
-    if(String(cotEditId)===String(id)) cotEditId=null;
-    try { baireCotacoesSubirNuvem(false); } catch(e) {}
-    window.baireRenderHistoricoCotacoes();
-  };
-
-  const oldShowPage=window.showPage;
-  window.showPage=function(id){
-    if(id==='cotacoes'){
-      document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-      qs('page-cotacoes')?.classList.add('active');
-      document.querySelector('[data-baire-cotacoes-tab]')?.classList.add('active');
-      renderFornecedores(); atualizarDatalistProdutos();
-      try { window.baireCotacoesBaixarNuvem(false).then(()=>{ window.baireRenderHistoricoCotacoes(); }); } catch(e) {}
-      if(!qs('cot-data')?.value) window.baireNovaCotacao(); else window.baireRenderCotTabela();
-      window.baireRenderHistoricoCotacoes();
-      return;
-    }
-    if(typeof oldShowPage==='function') oldShowPage(id);
-  };
-
-  // Override orçamento: SKU do catálogo e custo pela maior cotação.
-  window.orcAC=function(i){
-    const inp=qs('os'+i), list=qs('orac'+i); if(!inp||!list) return;
-    const q=normaliza(inp.value); if(!q){ list.classList.remove('open'); return; }
-    const ms=listaProdutosCatalogo().filter(s=>normaliza(s).includes(q) || normaliza((PRODUTOS_CA.find(p=>p.sku===s)||{}).nome||'').includes(q)).slice(0,70);
-    if(!ms.length){ list.classList.remove('open'); return; }
-    list.innerHTML=ms.map(s=>{
-      const p=(typeof PRODUTOS_CA!=='undefined' && Array.isArray(PRODUTOS_CA)) ? (PRODUTOS_CA.find(x=>x.sku===s)||{}) : {};
-      const cot=maiorValorCotado(s);
-      const nome=p.nome ? ` <span style="color:#888;font-size:11px">— ${esc(String(p.nome).slice(0,55))}</span>` : '';
-      const val=cot ? ` <span style="color:#059669;font-weight:700;margin-left:6px">${moeda(cot.valor)} ${esc(cot.fornecedor)}</span>` : ` <span style="color:#dc2626;font-size:11px;margin-left:6px">SEM COTAÇÃO</span>`;
-      return `<div class="ac-item" onmousedown="orcSI(${i},'${String(s).replace(/'/g,"\\'")}')"><strong>${esc(s)}</strong>${nome}${val}</div>`;
-    }).join('');
-    list.classList.add('open');
-  };
-  window.orcSI=function(i,sku){
-    const inp=qs('os'+i); if(inp) inp.value=String(sku||'').toUpperCase();
-    qs('orac'+i)?.classList.remove('open');
-    const cot=maiorValorCotado(sku);
-    const ci=qs('oc'+i);
-    if(ci){
-      if(cot){ ci.value=Number(cot.valor).toFixed(2); ci.style.background='#ecfdf5'; ci.title='Custo pela MAIOR cotação: '+cot.fornecedor+' em '+fmtData(cot.data); }
-      else { ci.value=''; ci.style.background='#fff7ed'; ci.title='Sem cotação: preencher manualmente'; }
-    }
-    if(typeof orcCalc==='function') orcCalc();
-  };
-
-  // Backup: inclui cotações.
-  const oldExportarDados=window.exportarDados;
-  window.exportarDados=function(){
-    if(typeof oldExportarDados!=='function') return;
-    try{
-      let painelMensal={}, historicoOrcamentos=[], localStorageFull={};
-      try { painelMensal=JSON.parse(localStorage.getItem('orc_pm')||'{}'); } catch(e){}
-      try { historicoOrcamentos=Array.isArray(window.orcHistory)?window.orcHistory:JSON.parse(localStorage.getItem('orc_history')||'[]'); } catch(e){historicoOrcamentos=[];}
-      try { for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); localStorageFull[k]=localStorage.getItem(k); } } catch(e){}
-      localStorageFull[KEY]=JSON.stringify(cotacoes());
-      localStorageFull[KEY2]=JSON.stringify(cotacoes());
-      const dados={versao:2,data:new Date().toISOString(),nfs:window.nfs||nfs||[],vendas:window.vendas||vendas||[],defeitos:window.defeitos||defeitos||[],rascunho:window.importVendas||[],cotacoesFornecedor:cotacoes(),painelMensal,historicoOrcamentos,proximoOrcamento:(typeof window.orcNum!=='undefined'?window.orcNum:(typeof orcNum!=='undefined'?orcNum:1)),localStorageFull};
-      const blob=new Blob([JSON.stringify(dados,null,2)],{type:'application/json'});
-      const url=URL.createObjectURL(blob); const a=document.createElement('a');
-      a.href=url; a.download=`backup_baire_COMPLETO_${baireHojeLocalISO()}.json`; a.click(); URL.revokeObjectURL(url);
-    } catch(e){ oldExportarDados(); }
-  };
-
-  const oldImportarDados=window.importarDados;
-  window.importarDados=function(input){
-    if(!input || !input.files || !input.files[0] || typeof oldImportarDados!=='function') return oldImportarDados(input);
-    const file=input.files[0];
-    const reader=new FileReader();
-    reader.onload=function(e){
-      try{
-        const dados=JSON.parse(e.target.result);
-        const arr=dados.cotacoesFornecedor || (dados.localStorageFull ? JSON.parse(dados.localStorageFull[KEY]||dados.localStorageFull[KEY2]||'[]') : []);
-        if(Array.isArray(arr)) salvarCotacoes(arr);
-      }catch(_){ }
-      oldImportarDados(input);
-      setTimeout(()=>{ criarAbaCotacoes(); window.baireRenderHistoricoCotacoes(); },800);
-    };
-    reader.readAsText(file);
-  };
-
-  document.addEventListener('input', function(e){
-    const el=e.target; if(!el || !el.matches) return;
-    if(el.matches('.cot-prod,.cot-obs,#mp_sku,#mp_nome,[id^="nf_prod_"],[id^="nf_marc_"],#nf_forn')){
-      const pos=el.selectionStart; el.value=String(el.value||'').toUpperCase(); try{el.setSelectionRange(pos,pos);}catch(_){ }
-    }
-  });
-
-  function init(){ criarAbaCotacoes(); renderFornecedores(); atualizarDatalistProdutos(); if(!qs('cot-data')?.value) window.baireNovaCotacao(); window.baireRenderHistoricoCotacoes(); }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else setTimeout(init,50);
-})();
-</script>
-
-
-
-<script>
-/* ============================================================
-   BAIRE — ORÇAMENTO VENDEDORES v2
-   - Tela separada para vendedor/vendedor
-   - Não mostra custo, fornecedor, margem ou sobra
-   - Usa cotação vigente: cotação mais recente com até 7 dias
-   - Base interna: maior valor da cotação mais recente
-   ============================================================ */
-(function(){
-  const KEY='baire_orcamentos_funcionarios';
-  const FUNCIONARIOS_PADRAO=['VERINHA','KAROL','ANDERSON','CRISTIANE','IRIS'];
-  let linhasCache=[];
-
-  function qs(id){ return document.getElementById(id); }
-  function esc(s){ return String(s ?? '').replace(/[&<>\"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[ch] || ch)); }
-  function normaliza(txt){ return String(txt||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
-  function hojeISO(){ return baireHojeLocalISO(); }
-  function fmtData(d){ if(!d) return '-'; const p=String(d).split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : d; }
-  function moeda(n){ n=Number(n)||0; return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
-  function num(v){ if(v===null||v===undefined) return 0; if(typeof v==='number') return isFinite(v)?v:0; let s=String(v).trim().replace(/R\$|\s/g,''); if(!s) return 0; if(s.includes(',')&&s.includes('.')) s=s.replace(/\./g,'').replace(',', '.'); else s=s.replace(',', '.'); const n=Number(s); return isFinite(n)?n:0; }
-  function diasEntre(iso){ if(!iso) return 9999; const a=new Date(iso+'T00:00:00'); const b=new Date(); b.setHours(0,0,0,0); return Math.floor((b-a)/(1000*60*60*24)); }
-  function cotacoes(){ try{ if(typeof window.baireCotacoes==='function') return window.baireCotacoes(); }catch(e){} try{return JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores')||localStorage.getItem('cotacoesFornecedor')||'[]')||[];}catch(e){return [];} }
-  function produtos(){ try{ if(typeof window.baireListaProdutosCatalogo==='function') return window.baireListaProdutosCatalogo(); }catch(e){} const set=new Set(); try{ if(Array.isArray(PRODUTOS_CA)) PRODUTOS_CA.forEach(p=>p?.sku&&set.add(String(p.sku).trim())); }catch(e){} try{ if(Array.isArray(nfs)) nfs.forEach(n=>n?.produto&&set.add(String(n.produto).trim())); }catch(e){} return [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,'pt-BR')); }
-  function clientes(){
-    const set=new Set();
-    function add(v){ v=normaliza(v); if(v && v.length>1) set.add(v); }
-    // Orçamentos dos vendedores
-    try{ hist().forEach(o=>add(o.cliente)); }catch(e){}
-    // Tenta buscar clientes em bases globais comuns do sistema, sem quebrar se não existirem
-    ['orcamentos','orcamentosHistorico','vendas','vendasRegistradas','clientes'].forEach(nome=>{
-      try{
-        const arr=window[nome];
-        if(Array.isArray(arr)) arr.forEach(o=>{ add(o?.cliente); add(o?.nomeCliente); add(o?.razao); add(o?.nome); });
-      }catch(e){}
-    });
-    // Varre localStorage para capturar nomes de clientes já salvos em backups/históricos
-    try{
-      for(let i=0;i<localStorage.length;i++){
-        const k=localStorage.key(i); const raw=localStorage.getItem(k)||'';
-        if(!raw || raw.length>2000000) continue;
-        let obj; try{ obj=JSON.parse(raw); }catch(_){ continue; }
-        const fila=Array.isArray(obj)?obj:[obj];
-        let limite=0;
-        while(fila.length && limite++<2000){
-          const x=fila.shift();
-          if(!x || typeof x!=='object') continue;
-          add(x.cliente); add(x.nomeCliente); add(x.razao); add(x.nome_cliente);
-          Object.keys(x).slice(0,80).forEach(key=>{ const v=x[key]; if(v && typeof v==='object') fila.push(v); });
-        }
-      }
-    }catch(e){}
-    return [...set].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-  }
-  function hist(){ try{return JSON.parse(localStorage.getItem(KEY)||'[]')||[];}catch(e){return [];} }
-  function salvarHist(arr){
-    const safe = Array.isArray(arr)?arr:[];
-    localStorage.setItem(KEY, JSON.stringify(safe));
-    try { if (window.location.protocol !== 'file:' && typeof supaSet === 'function') supaSet('baire_orcamentos_funcionarios', safe).catch(()=>{}); } catch(e) {}
-    try { if (window.location.protocol !== 'file:' && typeof salvarNuvem === 'function') setTimeout(()=>salvarNuvem().catch(()=>{}), 250); } catch(e) {}
-  }
-
-  function valoresItem(item){
-    const vals=[];
-    Object.entries(item?.valores||{}).forEach(([f,v])=>{ const n=num(v); if(n>0) vals.push({fornecedor:normaliza(f),valor:n}); });
-    return vals;
-  }
-  function cotacaoVigente(produto){
-    const alvo=normaliza(produto); if(!alvo) return null;
-    const registros=[];
-    cotacoes().forEach(c=>{
-      const dias=diasEntre(c.data);
-      if(dias<0 || dias>7) return;
-      (c.itens||[]).forEach(item=>{
-        if(normaliza(item.produto)!==alvo) return;
-        const vals=valoresItem(item);
-        if(!vals.length) return;
-        registros.push({data:c.data||'', id:c.id||'', vals});
-      });
-    });
-    if(!registros.length) return null;
-    registros.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(b.id).localeCompare(String(a.id)));
-    const dataMaisRecente=registros[0].data;
-    let melhor=null;
-    registros.filter(r=>r.data===dataMaisRecente).forEach(r=>{
-      r.vals.forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor, fornecedor:v.fornecedor, data:r.data, cotacaoId:r.id}; });
-    });
-    return melhor;
-  }
-  window.baireCotacaoVigenteFuncionario=cotacaoVigente;
-
-  function parametrosOrcamentoAdmin(){
-    // A tela de vendedores precisa usar a MESMA matemática do Orçamento administrativo,
-    // apenas escondendo custo, margem e sobra. Por isso buscamos os mesmos campos/parâmetros.
-    let p={lucroVendaMin:70,lucroVendaIdeal:110,lucroTonerMin:25,lucroTonerIdeal:37};
-    try{ if(typeof window.orcGP==='function') p=window.orcGP(); else if(typeof orcGP==='function') p=orcGP(); }catch(_){ }
-    return {
-      pnf:num(qs('oa-pnf')?.value || 7),
-      bol:num(qs('oa-bol')?.value || 1.99),
-      ent:num(qs('oa-ent')?.value || 14),
-      lucroVendaMin:num(p.lucroVendaMin || 70),
-      lucroVendaIdeal:num(p.lucroVendaIdeal || 110),
-      lucroTonerMin:num(p.lucroTonerMin || 25),
-      lucroTonerIdeal:num(p.lucroTonerIdeal || 37)
-    };
-  }
-  function totalQtdAtual(fallbackQtd){
-    const arr=(Array.isArray(linhasCache)&&linhasCache.length?linhasCache:linhas());
-    const total=arr.reduce((s,x)=>s+Math.max(0,num(x.qtd)),0);
-    return total || Math.max(1,num(fallbackQtd));
-  }
-  function calculaLinha(l){
-    const qtd=Math.max(0, num(l.qtd));
-    const cot=cotacaoVigente(l.produto);
-    const custoUnit=cot ? num(cot.valor) : 0;
-    const vendaCliente=num(l.vendaCliente);
-    const par=parametrosOrcamentoAdmin();
-    const totalQtd=totalQtdAtual(qtd);
-    const fixoUnit=(par.bol+par.ent)/(totalQtd||1);
-    const denNF=1-(par.pnf/100);
-    let sugerido=0, minAutorizado=0, status='PRECISA COTAR', classe='badge-alert';
-    if(cot && qtd>0){
-      // MESMA REGRA DA ABA ORÇAMENTO ADMINISTRATIVA:
-      // custo + rateio boleto/entrega + maior entre mínimo por toner e mínimo por venda rateado, dividido pela NF.
-      const lucroUnitMin=Math.max(par.lucroTonerMin, par.lucroVendaMin/(totalQtd||1));
-      const lucroUnitIdeal=Math.max(par.lucroTonerIdeal, par.lucroVendaIdeal/(totalQtd||1));
-      sugerido=denNF>0 ? Math.ceil(((custoUnit + fixoUnit + lucroUnitMin)/denNF)*100)/100 : 0;
-      minAutorizado=sugerido;
-      if(vendaCliente>0){
-        const tC=custoUnit*qtd;
-        const tV=vendaCliente*qtd;
-        const nfv=tV*(par.pnf/100);
-        const fixoLinha=fixoUnit*qtd;
-        const lnf=tV-(tC+nfv+fixoLinha);
-        let ap=null;
-        try{ ap=(typeof window.orcCA==='function')?window.orcCA(tC,tV,lnf,nfv,fixoLinha,qtd):orcCA(tC,tV,lnf,nfv,fixoLinha,qtd); }catch(_){ ap=null; }
-        const st=ap?.status || '';
-        if(st==='EXCELENTE'){ status='EXCELENTE'; classe='badge-ok'; }
-        else if(st==='APROVADO'){ status='APROVADO'; classe='badge-ok'; }
-        else if(st==='ATENÇÃO'){ status='ATENÇÃO / PEDIR APROVAÇÃO'; classe='badge-warn badge-pulse'; }
-        else { status='REPROVADO / PEDIR APROVAÇÃO'; classe='badge-alert'; }
-      } else { status='AGUARDANDO VALOR CLIENTE'; classe='badge-zero'; }
-    } else if(!cot){ status='PEDIR COTAÇÃO PARA VERINHA'; classe='badge-alert'; }
-    return {qtd,cot,custoUnit,sugerido,minAutorizado,status,classe};
-  }
-
-  function criarAba(){
-    if(qs('page-orc-func')) return;
-    const tabs=document.querySelector('.tabs');
-    if(tabs){
-      const t=document.createElement('div');
-      t.className='tab'; t.setAttribute('data-baire-orc-func-tab','1');
-      t.onclick=()=>showPage('orc-func');
-      t.textContent='👤 Orçamento Vendedores';
-      const cot=[...tabs.querySelectorAll('.tab')].find(x=>x.textContent.toLowerCase().includes('cotações'));
-      tabs.insertBefore(t, cot ? cot.nextSibling : null);
-    }
-    const page=document.createElement('div'); page.id='page-orc-func'; page.className='page';
-    page.innerHTML=`
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>👤 Orçamento Vendedores</h2>
-            <div class="help">Tela sem custo, margem, fornecedor ou sobra. Usa a mesma regra da aba Orçamento administrativo. Se aparecer APROVADO/EXCELENTE, pode vender. Se aparecer REPROVADO ou PEDIR COTAÇÃO, precisa aprovação/cotação.</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn-secondary" onclick="baireFuncNovoOrcamento()">Novo orçamento</button>
-            <button class="btn-green" onclick="baireFuncSalvarOrcamento()">Salvar orçamento</button>
-          </div>
-        </div>
-        <div style="padding:16px">
-          <div class="form-grid" style="grid-template-columns:170px 1fr 180px">
-            <div class="form-group"><label>Data</label><input type="date" id="of-data"></div>
-            <div class="form-group"><label>Cliente</label><input type="text" id="of-cliente" list="of-clientes-lista" placeholder="NOME DO CLIENTE / CLIENTE NOVO"></div>
-            <div class="form-group"><label>Vendedor</label><select id="of-funcionario">${FUNCIONARIOS_PADRAO.map(f=>`<option>${f}</option>`).join('')}</select></div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;margin:16px 0;flex-wrap:wrap">
-            <button class="btn-primary" onclick="baireFuncAddLinha()">+ Produto</button>
-            <span class="help">Produto vem da aba Produtos/SKU. Cotação válida: no máximo 7 dias.</span>
-          </div>
-          <datalist id="of-produtos-lista"></datalist>
-          <datalist id="of-clientes-lista"></datalist>
-          <div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:8px">
-            <table style="min-width:980px">
-              <thead><tr><th>Produto/SKU</th><th style="text-align:right">Qtd</th><th>Situação da cotação</th><th style="text-align:right">Venda sugerida</th><th style="text-align:right">Valor que cliente quer</th><th>Status</th><th>Observação</th><th>Ações</th></tr></thead>
-              <tbody id="of-body"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>Histórico de Orçamentos dos Vendedores</h2>
-            <div class="help">Aprovação administrativa provisória: use Iris, Karol ou Verinha. Quando criarmos login, estes botões ficam restritos aos administradores.</div>
-          </div>
-          <div class="search-wrap">
-            <label style="font-size:12px;color:#555;font-weight:600">Aprovador</label>
-            <select id="of-aprovador" style="min-width:130px"><option>IRIS</option><option>KAROL</option><option>VERINHA</option></select>
-            <input type="text" id="of-busca" placeholder="Buscar cliente/produto/status..." oninput="baireFuncRenderHistorico()">
-          </div>
-        </div>
-        <div style="overflow-x:auto"><table><thead><tr><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Itens</th><th>Status geral</th><th>Ações</th></tr></thead><tbody id="of-hist"></tbody></table></div>
-      </div>`;
-    document.body.insertBefore(page, document.body.querySelector('script:last-of-type') || null);
-  }
-
-  function atualizarProdutos(){
-    const dl=qs('of-produtos-lista'); if(dl) dl.innerHTML=produtos().map(p=>`<option value="${esc(p)}"></option>`).join('');
-    const dc=qs('of-clientes-lista'); if(dc) dc.innerHTML=clientes().map(c=>`<option value="${esc(c)}"></option>`).join('');
-  }
-  function linhas(){ return [...document.querySelectorAll('#of-body tr')].map(tr=>({
-    produto:normaliza(tr.querySelector('.of-prod')?.value||''),
-    qtd:num(tr.querySelector('.of-qtd')?.value||0),
-    vendaCliente:num(tr.querySelector('.of-venda')?.value||0),
-    obs:normaliza(tr.querySelector('.of-obs')?.value||'')
-  })).filter(x=>x.produto || x.qtd || x.vendaCliente || x.obs); }
-  function montarLinha(l={}){
-    const c=calculaLinha(l);
-    const tr=document.createElement('tr');
-    const cotTxt=c.cot ? `COTAÇÃO OK — ${fmtData(c.cot.data)}` : 'SEM COTAÇÃO VÁLIDA';
-    tr.innerHTML=`<td style="min-width:230px"><input class="of-prod" list="of-produtos-lista" type="text" value="${esc(l.produto||'')}" placeholder="PRODUTO/SKU" style="width:100%"></td>
-      <td style="width:80px"><input class="of-qtd" type="number" min="0" step="1" value="${l.qtd||''}" style="width:100%;text-align:right"></td>
-      <td><span class="badge ${c.cot?'badge-ok':'badge-alert'}">${esc(cotTxt)}</span></td>
-      <td style="text-align:right;font-weight:700;color:#1a3a5c">${c.sugerido?moeda(c.sugerido):'—'}</td>
-      <td style="width:150px"><input class="of-venda" type="number" min="0" step="0.01" value="${l.vendaCliente||''}" style="width:100%;text-align:right"></td>
-      <td><span class="badge ${c.classe}">${esc(c.status)}</span></td>
-      <td style="min-width:150px"><input class="of-obs" type="text" value="${esc(l.obs||'')}" placeholder="OBS." style="width:100%"></td>
-      <td style="white-space:nowrap"><button class="btn-secondary btn-sm" onclick="baireFuncAtualizarTela()">Atualizar</button> <button class="btn-danger btn-sm" onclick="this.closest('tr').remove(); baireFuncAtualizarTela()">Excluir</button></td>`;
-    return tr;
-  }
-  window.baireFuncAtualizarTela=function(){
-    atualizarProdutos();
-    const arr=linhas();
-    linhasCache=arr.length?arr:[{}];
-    const body=qs('of-body'); if(!body) return;
-    body.innerHTML='';
-    linhasCache.forEach(l=>body.appendChild(montarLinha(l)));
-  };
-  window.baireFuncAddLinha=function(){ const body=qs('of-body'); if(body){ linhasCache=linhas().concat([{}]); body.appendChild(montarLinha({})); } };
-  window.baireFuncNovoOrcamento=function(){
-    if(qs('of-data')) qs('of-data').value=hojeISO();
-    if(qs('of-cliente')) qs('of-cliente').value='';
-    const body=qs('of-body'); if(body){ body.innerHTML=''; body.appendChild(montarLinha({})); }
-    atualizarProdutos(); window.baireFuncRenderHistorico();
-  };
-  function statusGeral(itens){
-    if(!itens.length) return 'VAZIO';
-    const statusItens = itens.map(i=>normaliza(calculaLinha(i).status||i.status||''));
-    if(statusItens.some(st=>st.includes('PEDIR COTAÇÃO') || st.includes('PRECISA COTAR') || st.includes('SEM COTAÇÃO'))) return 'PRECISA COTAR';
-    if(statusItens.some(st=>st.includes('REPROVADO') || st.includes('PEDIR APROVAÇÃO') || st.includes('APROVAÇÃO') || st.includes('ATENÇÃO'))) return 'PENDENTE APROVAÇÃO';
-    if(statusItens.every(st=>st==='EXCELENTE')) return 'EXCELENTE';
-    if(statusItens.every(st=>['APROVADO','EXCELENTE'].includes(st))) return 'APROVADO';
-    return 'PENDENTE';
-  }
-  function classeStatusVendedor(s){
-    const st=normaliza(s);
-    if(st.includes('APROVADO ADMIN') || st==='EXCELENTE' || st==='APROVADO') return 'badge-ok';
-    if(st.includes('REPROVADO ADMIN') || st.includes('PRECISA COTAR') || st.includes('PEDIR COTAÇÃO') || st.includes('SEM COTAÇÃO')) return 'badge-alert';
-    if(st.includes('PENDENTE APROVAÇÃO') || st.includes('PENDENTE DE APROVAÇÃO') || st.includes('AGUARDANDO') || st.includes('ATENÇÃO') || st.includes('PEDIR APROVAÇÃO') || st.includes('SOLICITAR AJUSTE')) return 'badge-warn badge-pulse';
-    if(st.includes('REPROVADO')) return 'badge-alert';
-    if(st==='VAZIO' || st==='PENDENTE') return 'badge-zero';
-    return 'badge-zero';
-  }
-  window.baireFuncSalvarOrcamento=function(){
-    const itens=linhas().map(i=>{ const c=calculaLinha(i); return {...i, status:c.status, cotacaoData:c.cot?.data||'', custoBaseInterno:c.custoUnit, vendaSugerida:c.sugerido, criadoEm:new Date().toISOString()}; });
-    if(!itens.length){ alert('Inclua pelo menos um produto.'); return; }
-    const obj={id:Date.now(), data:qs('of-data')?.value||hojeISO(), cliente:normaliza(qs('of-cliente')?.value||''), funcionario:normaliza(qs('of-funcionario')?.value||''), itens, status:statusGeral(itens), criadoEm:new Date().toISOString(), atualizadoEm:new Date().toISOString()};
-    const arr=hist();
-    arr.unshift(obj);
-    salvarHist(arr);
-    window.baireFuncRenderHistorico();
-    // Após salvar, limpa a área de digitação para o próximo orçamento, mas mantém o histórico salvo embaixo.
-    window.baireFuncNovoOrcamento();
-    alert('✓ Orçamento do vendedor salvo. A tela foi limpa para o próximo orçamento.');
-  };
-  function resumoItensHistorico(o){
-    const itens=Array.isArray(o?.itens)?o.itens:[];
-    if(!itens.length) return '<div class="itens-venda">Sem itens salvos.</div>';
-    return `<div class="itens-venda">${itens.map(i=>{
-      const qtd=num(i.qtd)||0;
-      const vendaCliente=num(i.vendaCliente)||0;
-      const vendaSug=num(i.vendaSugerida)||0;
-      const unit=vendaCliente>0?vendaCliente:vendaSug;
-      const total=unit*qtd;
-      const status=esc(i.status||'');
-      return `<div><strong>${esc(i.produto||'-')}</strong> — Qtd: ${qtd} | Sugerido: ${moeda(vendaSug)} | Cliente: ${vendaCliente?moeda(vendaCliente):'—'} | Total: ${moeda(total)} <span class="badge ${classeStatusVendedor(i.status)}">${status}</span></div>`;
-    }).join('')}</div>`;
-  }
-  window.baireFuncRenderHistorico=function(){
-    const tb=qs('of-hist'); if(!tb) return;
-    const q=normaliza(qs('of-busca')?.value||'');
-    let arr=hist(); if(q) arr=arr.filter(o=>normaliza(JSON.stringify(o)).includes(q));
-    if(!arr.length){ tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum orçamento de vendedor salvo ainda.</td></tr>'; return; }
-    tb.innerHTML=arr.map(o=>{
-      const stFinal=o.statusAdmin || o.status || '-';
-      const detalhe=o.aprovadoPor ? `<div class="help">por ${esc(o.aprovadoPor)} ${o.aprovadoEm?('em '+new Date(o.aprovadoEm).toLocaleString('pt-BR')):''}</div>` : '';
-      return `<tr><td>${fmtData(o.data)}</td><td>${esc(o.cliente||'-')}</td><td>${esc(o.funcionario||'-')}</td><td>${resumoItensHistorico(o)}</td><td><span class="badge ${classeStatusVendedor(stFinal)}">${esc(stFinal)}</span>${detalhe}</td><td><button class="btn-secondary btn-sm" onclick="baireFuncAbrir(${o.id})">Abrir</button> <button class="btn-green btn-sm" onclick="baireFuncDecidir(${o.id},'APROVADO ADMIN')">Aprovar</button> <button class="btn-secondary btn-sm" onclick="baireFuncDecidir(${o.id},'SOLICITAR AJUSTE')">Ajuste</button> <button class="btn-danger btn-sm" onclick="baireFuncDecidir(${o.id},'REPROVADO ADMIN')">Reprovar</button> <button class="btn-danger btn-sm" onclick="baireFuncExcluir(${o.id})">Excluir</button></td></tr>`;
-    }).join('');
-  };
-  window.baireFuncAbrir=function(id){
-    const o=hist().find(x=>String(x.id)===String(id)); if(!o) return;
-    if(qs('of-data')) qs('of-data').value=o.data||hojeISO();
-    if(qs('of-cliente')) qs('of-cliente').value=o.cliente||'';
-    if(qs('of-funcionario')) qs('of-funcionario').value=o.funcionario||'VERINHA';
-    const body=qs('of-body'); if(body){ body.innerHTML=''; (o.itens||[]).forEach(i=>body.appendChild(montarLinha(i))); }
-    if(typeof showPage==='function') showPage('orc-func');
-  };
-  window.baireFuncDecidir=function(id,decisao){
-    const aprovador=normaliza(qs('of-aprovador')?.value||'IRIS');
-    const arr=hist();
-    const o=arr.find(x=>String(x.id)===String(id));
-    if(!o) return;
-    o.statusAdmin=decisao;
-    o.aprovadoPor=aprovador;
-    o.aprovadoEm=new Date().toISOString();
-    o.atualizadoEm=new Date().toISOString();
-    salvarHist(arr);
-    window.baireFuncRenderHistorico();
-  };
-  window.baireFuncExcluir=function(id){ if(!confirm('Excluir este orçamento de vendedor?')) return; salvarHist(hist().filter(x=>String(x.id)!==String(id))); window.baireFuncRenderHistorico(); };
-
-  const oldShow=window.showPage;
-  window.showPage=function(id){
-    if(id==='orc-func'){
-      document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-      qs('page-orc-func')?.classList.add('active');
-      document.querySelector('[data-baire-orc-func-tab]')?.classList.add('active');
-      atualizarProdutos(); if(!qs('of-data')?.value) window.baireFuncNovoOrcamento(); else window.baireFuncAtualizarTela(); window.baireFuncRenderHistorico();
-      return;
-    }
-    if(typeof oldShow==='function') return oldShow(id);
-  };
-
-  document.addEventListener('input', function(e){
-    const el=e.target; if(!el || !el.matches) return;
-    if(el.matches('.of-prod,.of-obs,#of-cliente')){
-      const pos=el.selectionStart; el.value=String(el.value||'').toUpperCase(); try{el.setSelectionRange(pos,pos);}catch(_){ }
-    }
-    // Importante: NÃO redesenha a tabela enquanto digita o produto, porque isso fecha a lista do autocomplete.
-    // Produto recalcula ao sair do campo ou ao clicar em Atualizar.
-    if(el.matches('.of-qtd,.of-venda')){
-      clearTimeout(window.__ofTimer); window.__ofTimer=setTimeout(()=>window.baireFuncAtualizarTela(),250);
-    }
-  });
-  document.addEventListener('change', function(e){
-    const el=e.target; if(!el || !el.matches) return;
-    if(el.matches('.of-prod')){
-      clearTimeout(window.__ofTimer); window.__ofTimer=setTimeout(()=>window.baireFuncAtualizarTela(),120);
-    }
-  });
-
-  function init(){ criarAba(); atualizarProdutos(); window.baireFuncNovoOrcamento(); window.baireFuncRenderHistorico(); }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else setTimeout(init,80);
-})();
-</script>
-
-
-
-<!-- ============================================================
-     LOGIN / USUÁRIOS / PERMISSÕES POR TELA — BAIRE
-     Primeira versão simples para uso interno em GitHub Pages.
-     ============================================================ -->
-<style id="baire-login-css">
-  #loginOverlay{position:fixed;inset:0;background:radial-gradient(circle at top left,rgba(26,58,92,.55),transparent 34%),linear-gradient(135deg,#050b14 0%,#081220 45%,#0a1628 100%);z-index:99999;display:none;align-items:center;justify-content:center;padding:20px}
-  #loginBox{width:min(460px,94vw);background:#ffffff;border-radius:20px;box-shadow:0 28px 80px rgba(0,0,0,.55);overflow:hidden;border:1px solid rgba(255,255,255,.16)}
-  #loginBox .lh{background:linear-gradient(135deg,#07111f,#0a1628 65%,#102845);color:#fff;padding:22px 24px}
-  #loginBox .lh h2{font-size:18px;margin:0 0 5px;font-weight:800}
-  #loginBox .lh p{font-size:12px;margin:0;color:rgba(255,255,255,.72);line-height:1.4}
-  #loginBox .lb{padding:20px 22px;display:flex;flex-direction:column;gap:12px}
-  #loginBox label{font-size:12px;font-weight:700;color:#374151;margin-bottom:4px;display:block}
-  #loginBox input{width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px 12px;font-size:14px;text-transform:none!important}
-  #loginBox button{border:none;border-radius:10px;padding:12px 14px;font-size:14px;font-weight:800;cursor:pointer;background:#0a1628;color:#fff;box-shadow:0 6px 18px rgba(10,22,40,.22)} #loginBox button:hover{background:#102845}
-  #loginMsg{font-size:12px;color:#991b1b;min-height:16px}
-  #userBadgeTop{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:700;margin-right:6px}
-  #btnLogoutTop{background:rgba(255,255,255,.12)!important;border:1px solid rgba(255,255,255,.28)!important;color:#fff!important;border-radius:999px!important;padding:5px 10px!important;font-size:12px!important}
-  .perm-hidden{display:none!important}
-  .user-perm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:8px}
-  .user-check{display:flex;align-items:center;gap:8px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;color:#374151}
-  .user-check input{width:auto}
-  .user-pill{display:inline-block;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:700;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd}
-  .login-note{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.4;margin:0 0 12px}
-
-  #page-usuarios .card{border-radius:12px;box-shadow:0 4px 16px rgba(15,23,42,.05)}
-  #page-usuarios .card-header{background:linear-gradient(135deg,#f8fafc,#eef4fb)}
-  #page-usuarios .user-perm-grid label{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:700;color:#334155}
-  #page-usuarios .user-perm-grid label:hover{background:#eef4fb}
-
-</style>
-
-<div id="loginOverlay">
-  <div id="loginBox">
-    <div class="lh">
-      <h2>BAIRE — Acesso ao Sistema</h2>
-      <p>Entre com usuário e senha. As telas aparecem conforme a permissão cadastrada.</p>
-    </div>
-    <div class="lb">
-      <div>
-        <label>Usuário</label>
-        <input id="loginUsuario" type="text" placeholder="ex: iris" autocomplete="username">
-      </div>
-      <div>
-        <label>Senha</label>
-        <input id="loginSenha" type="password" placeholder="senha" autocomplete="current-password">
-      </div>
-      <div id="loginMsg"></div>
-      <button onclick="baireLoginEntrar()">Entrar</button>
-      <div style="font-size:11px;color:#64748b;line-height:1.4">Usuário principal: <strong>iris</strong>. As senhas e permissões agora ficam sincronizadas junto com o sistema.</div>
-    </div>
-  </div>
-</div>
-
-<script id="baire-login-js">
-(function(){
-  const USERS_KEY='baire_usuarios_sistema';
-  const USERS_CLOUD_KEY='usuarios_sistema';
-  const SESSION_KEY='baire_usuario_logado';
-  const PAGE_LABELS={
-    estoque:'Estoque / NFs', vendas:'Registrar Venda', historico:'Histórico de Vendas', rastreio:'Rastreabilidade', importar:'Importar CSV', defeitos:'Defeitos', produtos:'Produtos', orcamento:'Orçamento Admin', 'orc-func':'Orçamento Vendedores', cotacoes:'Cotações', aprovacoes:'Aprovações', auditoria:'Auditoria', usuarios:'Usuários'
-  };
-  const DEFAULT_USERS=[
-    {usuario:'iris',senha:'EUCREIOEMJESUS',nome:'IRIS',perfil:'ADMIN',abas:['estoque','vendas','historico','rastreio','importar','defeitos','produtos','orcamento','orc-func','cotacoes','aprovacoes','auditoria','usuarios']},
-    {usuario:'verinha',senha:'1234',nome:'VERINHA',perfil:'APROVADORA',abas:['orcamento','orc-func','cotacoes','aprovacoes']},
-    {usuario:'karol',senha:'1234',nome:'KAROL',perfil:'APROVADORA',abas:['vendas','historico','orcamento','orc-func','aprovacoes']},
-    {usuario:'anderson',senha:'1234',nome:'ANDERSON',perfil:'VENDEDOR',abas:['orc-func']},
-    {usuario:'cristiane',senha:'1234',nome:'CRISTIANE',perfil:'VENDEDOR',abas:['orc-func']}
-  ];
-  function norm(s){return String(s||'').trim().toUpperCase();}
-  function lower(s){return String(s||'').trim().toLowerCase();}
-  function users(){
-    try{ const a=JSON.parse(localStorage.getItem(USERS_KEY)||'null'); if(Array.isArray(a)&&a.length) return a; }catch(e){}
-    localStorage.setItem(USERS_KEY, JSON.stringify(DEFAULT_USERS));
-    return DEFAULT_USERS.slice();
-  }
-  function saveUsersLocal(a){localStorage.setItem(USERS_KEY, JSON.stringify(a||[]));}
-  async function saveUsers(a){
-    saveUsersLocal(a||[]);
-    try{ if(typeof supaSet==='function') await supaSet(USERS_CLOUD_KEY, a||[]); }catch(e){ console.warn('Não foi possível sincronizar usuários:', e); }
-  }
-  async function carregarUsuariosNuvem(){
-    try{
-      if(typeof supaGet!=='function') return users();
-      const cloud=await supaGet(USERS_CLOUD_KEY);
-      if(Array.isArray(cloud) && cloud.length){
-        saveUsersLocal(cloud);
-        return cloud;
-      }
-      const local=users();
-      await saveUsers(local);
-      return local;
-    }catch(e){ return users(); }
-  }
-  function current(){try{return JSON.parse(sessionStorage.getItem(SESSION_KEY)||'null');}catch(e){return null;}}
-  function setCurrent(u){sessionStorage.setItem(SESSION_KEY, JSON.stringify(u));}
-  function isAdmin(){const u=current(); return !!u && (u.perfil==='ADMIN' || (u.abas||[]).includes('usuarios'));}
-  function canPage(id){const u=current(); if(!u) return false; return (u.abas||[]).includes(id) || u.perfil==='ADMIN';}
-  window.baireLoginAtual=current;
-  window.baireLoginPode=canPage;
-  window.baireLoginSair=function(){sessionStorage.removeItem(SESSION_KEY); location.reload();};
-  window.baireLoginEntrar=function(){
-    const usuario=lower(document.getElementById('loginUsuario')?.value);
-    const senha=String(document.getElementById('loginSenha')?.value||'');
-    const msg=document.getElementById('loginMsg');
-    const u=users().find(x=>lower(x.usuario)===usuario && String(x.senha||'')===senha);
-    if(!u){ if(msg) msg.textContent='Usuário ou senha inválidos.'; return; }
-    setCurrent({usuario:u.usuario,nome:norm(u.nome||u.usuario),perfil:u.perfil||'VENDEDOR',abas:u.abas||[]});
-    location.reload();
-  };
-  function tabPageId(tab){
-    const tx=(tab.getAttribute('onclick')||'')+'';
-    const m=tx.match(/showPage\(['\"]([^'\"]+)['\"]\)/); if(m) return m[1];
-    if(tab.getAttribute('data-baire-cotacoes-tab')!==null) return 'cotacoes';
-    if(tab.getAttribute('data-baire-orc-func-tab')!==null) return 'orc-func';
-    const t=tab.textContent.toLowerCase();
-    if(t.includes('estoque')) return 'estoque'; if(t.includes('registrar')) return 'vendas'; if(t.includes('histórico de vendas')) return 'historico'; if(t.includes('rastre')) return 'rastreio'; if(t.includes('importar')) return 'importar'; if(t.includes('defeitos')) return 'defeitos'; if(t.includes('produtos')) return 'produtos'; if(t.includes('orçamento vendedores')) return 'orc-func'; if(t.includes('orçamento')) return 'orcamento'; if(t.includes('cotações')) return 'cotacoes'; if(t.includes('aprovações')) return 'aprovacoes'; if(t.includes('auditoria')) return 'auditoria'; if(t.includes('usuários')) return 'usuarios';
-    return '';
-  }
-  function firstAllowed(){const u=current(); if(!u) return null; const pref=['aprovacoes','auditoria','orc-func','orcamento','cotacoes','vendas','historico','estoque','usuarios']; return pref.find(p=>canPage(p)) || (u.abas||[])[0] || null;}
-  function addTopUserBadge(){
-    const u=current(); if(!u) return;
-    const headerBtns=document.querySelector('header > div:last-child'); if(!headerBtns || document.getElementById('userBadgeTop')) return;
-    const span=document.createElement('span'); span.id='userBadgeTop'; span.textContent='👤 '+(u.nome||u.usuario)+' • '+(u.perfil||'');
-    const btn=document.createElement('button'); btn.id='btnLogoutTop'; btn.textContent='Sair'; btn.onclick=window.baireLoginSair;
-    headerBtns.insertBefore(btn, headerBtns.firstChild); headerBtns.insertBefore(span, btn);
-  }
-  function protegerHeader(){
-    if(isAdmin()) return;
-    document.querySelectorAll('header button, header label').forEach(el=>{
-      const t=el.textContent.toLowerCase();
-      if(t.includes('backup')||t.includes('restaurar')||t.includes('subir')) el.classList.add('perm-hidden');
-    });
-  }
-  function aplicarPermissoes(){
-    const u=current(); if(!u) return;
-    addTopUserBadge(); protegerHeader();
-    document.querySelectorAll('.tabs .tab').forEach(tab=>{ const id=tabPageId(tab); if(id && !canPage(id)) tab.classList.add('perm-hidden'); else tab.classList.remove('perm-hidden'); });
-    document.querySelectorAll('.page').forEach(pg=>{ const id=pg.id.replace(/^page-/,''); if(id && !canPage(id)) pg.classList.remove('active'); });
-    if(!document.querySelector('.page.active')){ const p=firstAllowed(); if(p && typeof window.showPage==='function') window.showPage(p); }
-  }
-  window.baireLoginAplicarPermissoes=aplicarPermissoes;
-  function criarTabAprovacoes(){
-    if(document.querySelector('[data-baire-aprovacoes-tab]')) return;
-    const tabs=document.querySelector('.tabs'); if(!tabs) return;
-    const t=document.createElement('div'); t.className='tab'; t.dataset.baireAprovacoesTab='1'; t.textContent='✅ Aprovações'; t.onclick=()=>showPage('aprovacoes');
-    const uTab=[...tabs.querySelectorAll('.tab')].find(x=>x.textContent.toLowerCase().includes('usuários'));
-    tabs.appendChild(t);
-  }
-  function criarTabUsuarios(){
-    if(document.querySelector('[data-baire-usuarios-tab]')) return;
-    const tabs=document.querySelector('.tabs'); if(!tabs) return;
-    const t=document.createElement('div'); t.className='tab'; t.dataset.baireUsuariosTab='1'; t.textContent='👥 Usuários'; t.onclick=()=>showPage('usuarios'); tabs.appendChild(t);
-  }
-  function criarPaginaUsuarios(){
-    if(document.getElementById('page-usuarios')) return;
-    const p=document.createElement('div'); p.id='page-usuarios'; p.className='page';
-    const checks=Object.entries(PAGE_LABELS).map(([id,label])=>`<label class="user-check"><input type="checkbox" class="usr-aba" value="${id}"> ${label}</label>`).join('');
-    p.innerHTML=`<div class="card"><div class="card-header"><h2>👥 Cadastro de Usuários e Permissões</h2><button class="btn-secondary" onclick="baireUserLimparForm()">Novo usuário</button></div><div style="padding:16px"><div class="login-note">Atenção: esta é uma proteção interna para organizar o acesso por tela. Usuários/senhas agora são sincronizados na nuvem do sistema, mas continua sendo uma barreira interna, não segurança bancária.</div><div class="form-grid"><div class="form-group"><label>Usuário</label><input id="usr-login" type="text" placeholder="ex: verinha"></div><div class="form-group"><label>Nome</label><input id="usr-nome" type="text" placeholder="VERINHA"></div><div class="form-group"><label>Senha</label><input id="usr-senha" type="text" placeholder="1234"></div><div class="form-group"><label>Perfil</label><select id="usr-perfil"><option>VENDEDOR</option><option>APROVADORA</option><option>ADMIN</option></select></div></div><div style="margin-top:14px"><div class="section-title">Telas permitidas</div><div class="user-perm-grid">${checks}</div></div><div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn-primary" onclick="baireUserSalvar()">Salvar usuário</button><button class="btn-danger" onclick="baireUserExcluirAtual()">Excluir usuário selecionado</button></div></div></div><div class="card"><div class="card-header"><h2>Usuários cadastrados</h2></div><div style="overflow-x:auto"><table><thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Telas</th><th>Ações</th></tr></thead><tbody id="usr-lista"></tbody></table></div></div>`;
-    document.body.insertBefore(p, document.body.querySelector('#loginOverlay'));
-  }
-  function criarPaginaAprovacoes(){
-    if(document.getElementById('page-aprovacoes')) return;
-    const p=document.createElement('div'); p.id='page-aprovacoes'; p.className='page';
-    p.innerHTML=`<div class="card"><div class="card-header"><div><h2>✅ Aprovações de Orçamentos dos Vendedores</h2><div class="help">Tela para Iris, Karol ou Verinha aprovarem/reprovarem orçamentos enviados pelos vendedores.</div></div><div class="search-wrap"><input type="text" id="aprovBusca" placeholder="Buscar cliente, vendedor, produto..." oninput="baireAprovRender()"><select id="aprovFiltro" onchange="baireAprovRender()"><option value="pendentes">Somente pendentes</option><option value="todos">Todos</option><option value="aprovados">Aprovados</option><option value="reprovados">Reprovados</option></select></div></div><div style="overflow-x:auto"><table><thead><tr><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="aprovBody"></tbody></table></div></div>`;
-    document.body.insertBefore(p, document.body.querySelector('#loginOverlay'));
-  }
-  window.baireUserLimparForm=function(){
-    ['usr-login','usr-nome','usr-senha'].forEach(id=>{const e=document.getElementById(id); if(e) e.value='';});
-    const perfil=document.getElementById('usr-perfil'); if(perfil) perfil.value='VENDEDOR';
-    document.querySelectorAll('.usr-aba').forEach(c=>c.checked=false);
-  };
-  window.baireUserEditar=function(usuario){
-    const u=users().find(x=>lower(x.usuario)===lower(usuario)); if(!u) return;
-    document.getElementById('usr-login').value=u.usuario||''; document.getElementById('usr-nome').value=u.nome||''; document.getElementById('usr-senha').value=u.senha||''; document.getElementById('usr-perfil').value=u.perfil||'VENDEDOR';
-    document.querySelectorAll('.usr-aba').forEach(c=>c.checked=(u.abas||[]).includes(c.value));
-  };
-  window.baireUserSalvar=async function(){
-    const usuario=lower(document.getElementById('usr-login')?.value); const nome=norm(document.getElementById('usr-nome')?.value||usuario); const senha=String(document.getElementById('usr-senha')?.value||''); const perfil=document.getElementById('usr-perfil')?.value||'VENDEDOR';
-    if(!usuario||!senha){alert('Informe usuário e senha.');return;}
-    const abas=[...document.querySelectorAll('.usr-aba:checked')].map(c=>c.value);
-    if(perfil==='ADMIN') Object.keys(PAGE_LABELS).forEach(k=>{if(!abas.includes(k)) abas.push(k);});
-    let arr=users().filter(x=>lower(x.usuario)!==usuario); arr.push({usuario,senha,nome,perfil,abas}); await saveUsers(arr); window.baireUserRender(); alert('Usuário salvo e sincronizado.'); aplicarPermissoes();
-  };
-  window.baireUserExcluirAtual=async function(){const usuario=lower(document.getElementById('usr-login')?.value); if(!usuario) return alert('Selecione um usuário.'); if(usuario==='iris') return alert('Não exclua o usuário Iris padrão.'); if(!confirm('Excluir usuário '+usuario+'?')) return; await saveUsers(users().filter(x=>lower(x.usuario)!==usuario)); window.baireUserLimparForm(); window.baireUserRender();};
-  window.baireUserRender=function(){
-    const tb=document.getElementById('usr-lista'); if(!tb) return; const arr=users();
-    tb.innerHTML=arr.map(u=>`<tr><td><strong>${u.usuario}</strong></td><td>${u.nome||''}</td><td><span class="user-pill">${u.perfil||''}</span></td><td style="max-width:520px">${(u.abas||[]).map(a=>PAGE_LABELS[a]||a).join(', ')}</td><td><button class="btn-secondary btn-sm" onclick="baireUserEditar('${u.usuario}')">Editar</button></td></tr>`).join('');
-  };
-  function classeAprov(st){st=norm(st); if(st.includes('APROVADO')||st.includes('EXCELENTE')) return 'badge-ok'; if(st.includes('AJUSTE')||st.includes('PENDENTE')||st.includes('ATENÇÃO')) return 'badge-warn badge-pulse'; if(st.includes('REPROV')||st.includes('COTA')) return 'badge-alert'; return 'badge-zero';}
-  window.baireAprovRender=function(){
-    const tb=document.getElementById('aprovBody'); if(!tb) return;
-    let arr=[]; try{arr=JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios')||'[]')||[];}catch(e){}
-    const filtro=document.getElementById('aprovFiltro')?.value||'pendentes'; const q=norm(document.getElementById('aprovBusca')?.value||'');
-    if(q) arr=arr.filter(o=>norm(JSON.stringify(o)).includes(q));
-    arr=arr.filter(o=>{const st=norm(o.statusAdmin||o.status||''); if(filtro==='todos') return true; if(filtro==='aprovados') return st.includes('APROV'); if(filtro==='reprovados') return st.includes('REPROV'); return !st.includes('APROV') && !st.includes('REPROV');});
-    if(!arr.length){tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum orçamento para mostrar.</td></tr>';return;}
-    tb.innerHTML=arr.map(o=>{const st=o.statusAdmin||o.status||'PENDENTE APROVAÇÃO'; const detalhe=o.aprovadoPor?`<div class="help">por ${o.aprovadoPor} ${o.aprovadoEm?('em '+new Date(o.aprovadoEm).toLocaleString('pt-BR')):''}</div>`:''; const itens=(Array.isArray(o.itens)?o.itens:[]).map(i=>`<div><strong>${i.produto||'-'}</strong> — Qtd: ${i.qtd||0} | Sug.: ${typeof moeda==='function'?moeda(i.vendaSugerida||0):i.vendaSugerida} | Cliente: ${i.vendaCliente? (typeof moeda==='function'?moeda(i.vendaCliente):i.vendaCliente) :'—'} <span class="badge ${classeAprov(i.status)}">${i.status||''}</span></div>`).join('')||'Sem itens'; return `<tr><td>${typeof fmtData==='function'?fmtData(o.data):o.data}</td><td>${o.cliente||'-'}</td><td>${o.funcionario||'-'}</td><td><div class="itens-venda">${itens}</div></td><td><span class="badge ${classeAprov(st)}">${st}</span>${detalhe}</td><td><button class="btn-green btn-sm" onclick="baireFuncDecidir(${o.id},'APROVADO ADMIN')">Aprovar</button> <button class="btn-secondary btn-sm" onclick="baireFuncDecidir(${o.id},'SOLICITAR AJUSTE')">Ajuste</button> <button class="btn-danger btn-sm" onclick="baireFuncDecidir(${o.id},'REPROVADO ADMIN')">Reprovar</button></td></tr>`;}).join('');
-  };
-  async function init(){
-    await carregarUsuariosNuvem();
-    criarTabAprovacoes(); criarTabUsuarios(); criarPaginaAprovacoes(); criarPaginaUsuarios();
-    const u=current();
-    if(!u){ const lo=document.getElementById('loginOverlay'); if(lo) lo.style.display='flex'; return; }
-    const lo=document.getElementById('loginOverlay'); if(lo) lo.style.display='none';
-    const oldShow=window.showPage;
-    window.showPage=function(id){ if(!canPage(id)){ alert('Usuário sem permissão para esta tela.'); const p=firstAllowed(); if(p&&p!==id) return window.showPage(p); return; } if(id==='usuarios'){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('page-usuarios')?.classList.add('active');document.querySelector('[data-baire-usuarios-tab]')?.classList.add('active');window.baireUserRender();return;} if(id==='aprovacoes'){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('page-aprovacoes')?.classList.add('active');document.querySelector('[data-baire-aprovacoes-tab]')?.classList.add('active');window.baireAprovRender();return;} return oldShow?oldShow(id):undefined; };
-    const oldDecidir=window.baireFuncDecidir;
-    window.baireFuncDecidir=function(id,decisao){ const cur=current(); let sel=document.getElementById('of-aprovador'); if(sel && cur?.nome){ let exists=[...sel.options].some(o=>o.value===cur.nome||o.textContent===cur.nome); if(!exists){const op=document.createElement('option');op.textContent=cur.nome;op.value=cur.nome;sel.appendChild(op);} sel.value=cur.nome; } const r=oldDecidir?oldDecidir(id,decisao):undefined; setTimeout(()=>{try{window.baireAprovRender();}catch(e){}},80); return r; };
-    aplicarPermissoes(); window.baireUserRender(); window.baireAprovRender();
-    setTimeout(()=>{aplicarPermissoes();},500); setTimeout(()=>{aplicarPermissoes();},1500);
-    const p=firstAllowed(); if(p && !document.querySelector('.page.active')) window.showPage(p);
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else setTimeout(init,100);
-})();
-</script>
-
-
-<script id="baire-auditoria-js">
-(function(){
-  const AUD_KEY = 'baire_auditoria';
-  const AUD_CLOUD = 'auditoria_sistema';
-  const MAX_LOCAL = 2000;
-  function norm(s){ return String(s||'').trim().toUpperCase(); }
-  function nowISO(){ return new Date().toISOString(); }
-  function atual(){
-    try{
-      if(typeof window.baireLoginAtual === 'function'){
-        const u = window.baireLoginAtual();
-        if(u) return {usuario:u.usuario||'', nome:u.nome||u.usuario||'', perfil:u.perfil||''};
-      }
-    }catch(e){}
-    return {usuario:'sistema', nome:'SISTEMA', perfil:''};
-  }
-  function listaLocal(){
-    try{
-      const a = JSON.parse(localStorage.getItem(AUD_KEY)||'[]');
-      return Array.isArray(a) ? a : [];
-    }catch(e){ return []; }
-  }
-  function salvarLocal(arr){
-    try{ localStorage.setItem(AUD_KEY, JSON.stringify((arr||[]).slice(0, MAX_LOCAL))); }catch(e){}
-  }
-  async function salvarNuvemAud(arr){
-    try{ if(typeof supaSet === 'function' && window.location.protocol !== 'file:') await supaSet(AUD_CLOUD, (arr||[]).slice(0, MAX_LOCAL)); }catch(e){}
-  }
-  async function carregarAuditoriaNuvem(){
-    let local = listaLocal();
-    try{
-      if(typeof supaGet === 'function' && window.location.protocol !== 'file:'){
-        const cloud = await supaGet(AUD_CLOUD);
-        if(Array.isArray(cloud) && cloud.length){
-          const map = new Map();
-          [...cloud, ...local].forEach(x => {
-            if(!x) return;
-            const k = x.id || [x.dataISO,x.usuario,x.modulo,x.acao,x.detalhe].join('|');
-            map.set(k, x);
-          });
-          local = Array.from(map.values()).sort((a,b)=>String(b.dataISO||'').localeCompare(String(a.dataISO||''))).slice(0, MAX_LOCAL);
-          salvarLocal(local);
-        } else if(local.length) {
-          await salvarNuvemAud(local);
-        }
-      }
-    }catch(e){}
-    return local;
-  }
-  async function registrar(modulo, acao, detalhe, antes, depois){
-    const u = atual();
-    const ev = {
-      id: 'AUD-' + Date.now() + '-' + Math.random().toString(36).slice(2,8),
-      dataISO: nowISO(),
-      dataBR: new Date().toLocaleString('pt-BR'),
-      usuario: norm(u.nome || u.usuario || 'SISTEMA'),
-      login: String(u.usuario||''),
-      perfil: String(u.perfil||''),
-      modulo: norm(modulo),
-      acao: norm(acao),
-      detalhe: String(detalhe||''),
-      antes: antes === undefined ? '' : String(antes),
-      depois: depois === undefined ? '' : String(depois)
-    };
-    const arr = [ev, ...listaLocal()].slice(0, MAX_LOCAL);
-    salvarLocal(arr);
-    salvarNuvemAud(arr);
-    try{ if(typeof window.baireAuditoriaRender === 'function') window.baireAuditoriaRender(); }catch(e){}
-    return ev;
-  }
-  window.baireAuditoriaRegistrar = registrar;
-  window.baireAuditoriaLista = listaLocal;
-  window.baireAuditoriaCarregarNuvem = carregarAuditoriaNuvem;
-
-  function classe(ev){
-    const a = norm((ev&&ev.acao)||'');
-    if(a.includes('EXCL') || a.includes('REPROV')) return 'badge-alert';
-    if(a.includes('APROV') || a.includes('SALV') || a.includes('CRI') || a.includes('REGISTR')) return 'badge-ok';
-    if(a.includes('ALTER') || a.includes('AJUST') || a.includes('EDIT')) return 'badge-warn';
-    return 'badge-zero';
-  }
-  function escapeHtml(s){
-    return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  }
-  function criarAbaAuditoria(){
-    if(document.querySelector('[data-baire-auditoria-tab]')) return;
-    const tabs=document.querySelector('.tabs'); if(!tabs) return;
-    const t=document.createElement('div');
-    t.className='tab';
-    t.dataset.baireAuditoriaTab='1';
-    t.textContent='🔒 Auditoria';
-    t.onclick=()=>showPage('auditoria');
-    tabs.appendChild(t);
-  }
-  function criarPaginaAuditoria(){
-    if(document.getElementById('page-auditoria')) return;
-    const p=document.createElement('div');
-    p.id='page-auditoria';
-    p.className='page';
-    p.innerHTML = `
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>🔒 Auditoria do Sistema</h2>
-            <div class="help">Registro automático e somente leitura. Não há botão para editar, apagar ou limpar.</div>
-          </div>
-          <div class="search-wrap">
-            <input type="date" id="audData" onchange="baireAuditoriaRender()">
-            <input type="text" id="audBusca" placeholder="Buscar usuário, tela, ação..." oninput="baireAuditoriaRender()">
-            <button class="btn-secondary btn-sm" onclick="baireAuditoriaAtualizar()">Atualizar</button>
-          </div>
-        </div>
-        <div style="padding:10px 14px;background:#fff7ed;border-bottom:1px solid #fed7aa;color:#9a3412;font-size:12px;line-height:1.4">
-          Observação: esta auditoria bloqueia edição pela tela do sistema. Como o sistema roda em HTML/GitHub, uma pessoa técnica com acesso ao código ou ao banco ainda poderia tentar manipular dados. Para uso interno da Baire, ela serve como trilha de responsabilidade operacional.
-        </div>
-        <div style="overflow-x:auto">
-          <table>
-            <thead>
-              <tr><th>Data/Hora</th><th>Usuário</th><th>Tela</th><th>Ação</th><th>Detalhe</th><th>Antes</th><th>Depois</th></tr>
-            </thead>
-            <tbody id="audBody"></tbody>
-          </table>
-        </div>
-      </div>`;
-    const ref = document.body.querySelector('#loginOverlay') || document.body.lastElementChild;
-    document.body.insertBefore(p, ref);
-  }
-  window.baireAuditoriaRender = function(){
-    const tb=document.getElementById('audBody'); if(!tb) return;
-    let arr=listaLocal();
-    const q=norm(document.getElementById('audBusca')?.value||'');
-    const d=document.getElementById('audData')?.value||'';
-    if(d) arr=arr.filter(ev=>String(ev.dataISO||'').slice(0,10)===d);
-    if(q) arr=arr.filter(ev=>norm(JSON.stringify(ev)).includes(q));
-    if(!arr.length){ tb.innerHTML='<tr><td colspan="7" class="empty">Nenhum registro de auditoria encontrado.</td></tr>'; return; }
-    tb.innerHTML = arr.slice(0,500).map(ev=>`
-      <tr>
-        <td>${escapeHtml(ev.dataBR || (ev.dataISO ? new Date(ev.dataISO).toLocaleString('pt-BR') : ''))}</td>
-        <td><strong>${escapeHtml(ev.usuario||'-')}</strong><div class="help">${escapeHtml(ev.login||'')}</div></td>
-        <td>${escapeHtml(ev.modulo||'-')}</td>
-        <td><span class="badge ${classe(ev)}">${escapeHtml(ev.acao||'-')}</span></td>
-        <td style="max-width:420px">${escapeHtml(ev.detalhe||'')}</td>
-        <td style="max-width:260px">${escapeHtml(ev.antes||'')}</td>
-        <td style="max-width:260px">${escapeHtml(ev.depois||'')}</td>
-      </tr>`).join('');
-  };
-  window.baireAuditoriaAtualizar = async function(){
-    await carregarAuditoriaNuvem();
-    window.baireAuditoriaRender();
-  };
-
-  function patchShowPage(){
-    const old = window.showPage;
-    if(old && !old.__auditoriaPatch){
-      const fn = function(id){
-        if(id === 'auditoria'){
-          if(typeof window.baireLoginPode === 'function' && !window.baireLoginPode('auditoria')){
-            alert('Usuário sem permissão para esta tela.');
-            return;
-          }
-          document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-          document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-          document.getElementById('page-auditoria')?.classList.add('active');
-          document.querySelector('[data-baire-auditoria-tab]')?.classList.add('active');
-          window.baireAuditoriaRender();
-          return;
-        }
-        return old.apply(this, arguments);
-      };
-      fn.__auditoriaPatch = true;
-      window.showPage = fn;
-    }
-  }
-  function wrap(name, modulo, acao, detalheFn){
-    const old = window[name];
-    if(typeof old !== 'function' || old.__auditoriaWrap) return;
-    const fn = function(){
-      const uAntes = JSON.stringify(arguments.length ? Array.from(arguments).slice(0,3) : '');
-      const res = old.apply(this, arguments);
-      try{
-        const detalhe = typeof detalheFn === 'function' ? detalheFn.apply(this, arguments) : '';
-        registrar(modulo, acao, detalhe, '', '');
-      }catch(e){}
-      return res;
-    };
-    fn.__auditoriaWrap = true;
-    window[name]=fn;
-  }
-  function aplicarHooks(){
-    wrap('salvarNF','NF / COMPRAS','SALVOU NF',()=> {
-      const nf=document.getElementById('nf')?.value || document.getElementById('nf-num')?.value || '';
-      const prod=document.getElementById('produto')?.value || '';
-      return (nf?('NF '+nf+' '):'') + (prod?('Produto '+prod):'');
-    });
-    wrap('salvarVenda','VENDAS','REGISTROU VENDA',()=> {
-      const cli=document.getElementById('venda-cliente')?.value || document.getElementById('cliente')?.value || '';
-      return cli ? ('Cliente '+cli) : 'Venda registrada';
-    });
-    wrap('salvarProduto','PRODUTOS','SALVOU PRODUTO',()=> {
-      const sku=document.getElementById('prod-sku')?.value || document.getElementById('produtoSku')?.value || '';
-      return sku ? ('SKU '+sku) : 'Produto salvo';
-    });
-    wrap('salvarDefeito','DEFEITOS','REGISTROU DEFEITO',()=> 'Defeito registrado');
-    wrap('baireUserSalvar','USUÁRIOS','SALVOU USUÁRIO',()=> {
-      const u=document.getElementById('usr-login')?.value || '';
-      return u ? ('Usuário '+u) : 'Usuário salvo';
-    });
-    wrap('baireUserExcluirAtual','USUÁRIOS','EXCLUIU USUÁRIO',()=> {
-      const u=document.getElementById('usr-login')?.value || '';
-      return u ? ('Usuário '+u) : 'Usuário excluído';
-    });
-    const oldDecidir = window.baireFuncDecidir;
-    if(typeof oldDecidir === 'function' && !oldDecidir.__auditoriaWrap){
-      const fn = function(id, decisao){
-        const res = oldDecidir.apply(this, arguments);
-        try{ registrar('APROVAÇÕES', decisao || 'DECIDIU ORÇAMENTO', 'Orçamento vendedor ID '+id, '', decisao||''); }catch(e){}
-        return res;
-      };
-      fn.__auditoriaWrap = true;
-      window.baireFuncDecidir = fn;
-    }
-  }
-  function initAuditoria(){
-    criarAbaAuditoria();
-    criarPaginaAuditoria();
-    patchShowPage();
-    aplicarHooks();
-    carregarAuditoriaNuvem().then(()=>window.baireAuditoriaRender());
-    setTimeout(()=>{patchShowPage(); aplicarHooks();},800);
-    setTimeout(()=>{patchShowPage(); aplicarHooks();},1800);
-    setTimeout(()=>{patchShowPage(); aplicarHooks();},3500);
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', initAuditoria); else setTimeout(initAuditoria,150);
-})();
-</script>
-
-
-
-<script id="baire-sync-real-cot-orc-aprov-audit">
-/* ============================================================
-   BAIRE — PATCH SINCRONIZAÇÃO REAL (01/06)
-   Corrige restauração/nuvem para módulos novos:
-   Cotações, Orçamento Vendedores, Aprovações e Auditoria.
-   ============================================================ */
-(function(){
-  const K_COT1='baire_cotacoes_fornecedores';
-  const K_COT2='cotacoesFornecedor';
-  const K_OF='baire_orcamentos_funcionarios';
-  const K_AUD='baire_auditoria';
-  const K_AUD_CLOUD='auditoria_sistema';
-  const K_USERS='baire_usuarios_sistema';
-  const K_USERS_CLOUD='usuarios_sistema';
-
-  function parseJSON(v, fallback){ try { if(v===undefined||v===null||v==='') return fallback; return typeof v==='string'?JSON.parse(v):v; } catch(e){ return fallback; } }
-  function arr(v){ return Array.isArray(v)?v:[]; }
-  function obj(v){ return v && typeof v==='object' && !Array.isArray(v) ? v : {}; }
-  function getLS(k, fallback){ return parseJSON(localStorage.getItem(k), fallback); }
-  function setLS(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
-  function norm(s){ return String(s||'').trim().toUpperCase(); }
-  function fromDados(dados, prop, keys, fallback){
-    if(dados && dados[prop] !== undefined) return dados[prop];
-    const ls = obj(dados && dados.localStorageFull);
-    for(const k of keys||[]){ if(ls[k] !== undefined) return parseJSON(ls[k], fallback); }
-    return fallback;
-  }
-  function mergeByKey(a,b,keyFn,dateFn){
-    const map=new Map();
-    const add=x=>{ if(!x || typeof x!=='object') return; const k=String(keyFn(x)); const old=map.get(k); const dx=Number(dateFn(x)||0); const dox=Number(old?dateFn(old):0); if(!old || dx>=dox) map.set(k,x); };
-    arr(a).forEach(add); arr(b).forEach(add);
-    return Array.from(map.values());
-  }
-  function mergeCot(a,b){
-    return mergeByKey(a,b,c=>c.id || ((c.data||'')+'|'+JSON.stringify(c.itens||[]).slice(0,240)), c=>new Date(c.atualizadoEm||c.data||0).getTime()).sort((x,y)=>String(y.data||'').localeCompare(String(x.data||'')));
-  }
-  function mergeOF(a,b){
-    if(typeof window.baireMergeOrcamentosVendedores==='function') return window.baireMergeOrcamentosVendedores(arr(a),arr(b));
-    return mergeByKey(a,b,o=>o.id || ((o.data||'')+'|'+(o.criadoEm||'')+'|'+(o.cliente||'')+'|'+JSON.stringify(o.itens||[]).slice(0,240)), o=>new Date(o.atualizadoEm||o.aprovadoEm||o.criadoEm||o.data||0).getTime()).sort((x,y)=>new Date(y.atualizadoEm||y.criadoEm||y.data||0)-new Date(x.atualizadoEm||x.criadoEm||x.data||0));
-  }
-  function mergeAud(a,b){
-    return mergeByKey(a,b,x=>x.id || [x.dataISO,x.usuario,x.modulo,x.acao,x.detalhe].join('|'), x=>new Date(x.dataISO||0).getTime()).sort((x,y)=>String(y.dataISO||'').localeCompare(String(x.dataISO||''))).slice(0,2000);
-  }
-  function mergeUsers(a,b){
-    const map=new Map();
-    arr(a).concat(arr(b)).forEach(u=>{ if(!u || !u.usuario) return; map.set(String(u.usuario).toLowerCase(), u); });
-    return Array.from(map.values());
-  }
-  async function subirModulosNovos(avisa=false){
-    if(window.location.protocol==='file:' || typeof supaSet!=='function') return false;
-    const cot=arr(getLS(K_COT1, getLS(K_COT2, [])));
-    const of=arr(getLS(K_OF, []));
-    const aud=arr(getLS(K_AUD, []));
-    const users=arr(getLS(K_USERS, []));
-    await supaSet('cotacoesFornecedor', cot);
-    await supaSet(K_OF, of);
-    await supaSet(K_AUD_CLOUD, aud);
-    await supaSet(K_USERS_CLOUD, users);
-    if(avisa) alert('✓ Cotações, Orçamento Vendedores, Aprovações e Auditoria enviados para a nuvem.');
-    return true;
-  }
-  async function baixarModulosNovos(avisa=false){
-    if(window.location.protocol==='file:' || typeof supaGet!=='function') return false;
-    const [cotCloud, ofCloud, audCloud, usersCloud] = await Promise.all([
-      supaGet('cotacoesFornecedor').catch(()=>[]),
-      supaGet(K_OF).catch(()=>[]),
-      supaGet(K_AUD_CLOUD).catch(()=>[]),
-      supaGet(K_USERS_CLOUD).catch(()=>[])
-    ]);
-    const cot=mergeCot(getLS(K_COT1, getLS(K_COT2, [])), arr(cotCloud));
-    setLS(K_COT1,cot); setLS(K_COT2,cot);
-    await supaSet('cotacoesFornecedor', cot).catch(()=>{});
-
-    const of=mergeOF(getLS(K_OF, []), arr(ofCloud));
-    setLS(K_OF,of); await supaSet(K_OF, of).catch(()=>{});
-
-    const aud=mergeAud(getLS(K_AUD, []), arr(audCloud));
-    setLS(K_AUD,aud); await supaSet(K_AUD_CLOUD, aud).catch(()=>{});
-
-    const users=mergeUsers(arr(usersCloud), getLS(K_USERS, []));
-    if(users.length){ setLS(K_USERS,users); await supaSet(K_USERS_CLOUD, users).catch(()=>{}); }
-
-    try{ if(typeof window.baireRenderHistoricoCotacoes==='function') window.baireRenderHistoricoCotacoes(); }catch(e){}
-    try{ if(typeof window.baireFuncRenderHistorico==='function') window.baireFuncRenderHistorico(); }catch(e){}
-    try{ if(typeof window.baireAprovRender==='function') window.baireAprovRender(); }catch(e){}
-    try{ if(typeof window.baireAuditoriaRender==='function') window.baireAuditoriaRender(); }catch(e){}
-    try{ if(typeof window.baireUserRender==='function') window.baireUserRender(); }catch(e){}
-    if(avisa) alert('✓ Módulos novos sincronizados da nuvem.');
-    return true;
-  }
-  window.baireSubirModulosNovosNuvem=subirModulosNovos;
-  window.baireBaixarModulosNovosNuvem=baixarModulosNovos;
-
-  // Patch do botão geral ☁️ Nuvem: depois da sync antiga, também sincroniza módulos novos.
-  const oldSync=window.sincronizarManual;
-  window.sincronizarManual=async function(){
-    let r;
-    if(typeof oldSync==='function') r=await oldSync.apply(this, arguments);
-    await baixarModulosNovos(false).catch(()=>{});
-    await subirModulosNovos(false).catch(()=>{});
-    try{ const b=document.getElementById('syncIndicator'); if(b){ b.textContent='✅ Sincronizado!'; setTimeout(()=>b.textContent='☁️ Nuvem',1800); } }catch(e){}
-    return r;
-  };
-
-  // Patch do backup: garante campos no topo e dentro do localStorageFull.
-  const oldExport=window.exportarDados;
-  window.exportarDados=function(){
-    try{
-      let localStorageFull={};
-      try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); localStorageFull[k]=localStorage.getItem(k); } }catch(e){}
-      const cot=arr(getLS(K_COT1, getLS(K_COT2, [])));
-      const of=arr(getLS(K_OF, []));
-      const aud=arr(getLS(K_AUD, []));
-      const users=arr(getLS(K_USERS, []));
-      localStorageFull[K_COT1]=JSON.stringify(cot); localStorageFull[K_COT2]=JSON.stringify(cot);
-      localStorageFull[K_OF]=JSON.stringify(of);
-      localStorageFull[K_AUD]=JSON.stringify(aud);
-      localStorageFull[K_USERS]=JSON.stringify(users);
-      let painelMensal={}, historicoOrcamentos=[];
-      try{ painelMensal=getLS('orc_pm',{}); }catch(e){}
-      try{ historicoOrcamentos=Array.isArray(window.orcHistory)?window.orcHistory:getLS('orc_history',[]); }catch(e){}
-      const dados={
-        versao:3,
-        data:new Date().toISOString(),
-        nfs: typeof nfs!=='undefined'?nfs:arr(getLS('toner_nfs',[])),
-        vendas: typeof vendas!=='undefined'?vendas:arr(getLS('toner_vendas',[])),
-        defeitos: typeof defeitos!=='undefined'?defeitos:arr(getLS('toner_defeitos',[])),
-        rascunho: typeof importVendas!=='undefined'?importVendas:arr(getLS('toner_import_rascunho',[])),
-        cotacoesFornecedor: cot,
-        orcamentosVendedores: of,
-        aprovacoes: of,
-        auditoria: aud,
-        usuariosSistema: users,
-        painelMensal,
-        historicoOrcamentos,
-        proximoOrcamento: typeof orcNum!=='undefined'?orcNum:Number(localStorage.getItem('orc_num')||1),
-        localStorageFull
-      };
-      const blob=new Blob([JSON.stringify(dados,null,2)],{type:'application/json'});
-      const url=URL.createObjectURL(blob); const a=document.createElement('a');
-      a.href=url; a.download=`backup_baire_COMPLETO_${baireHojeLocalISO()}.json`; a.click(); URL.revokeObjectURL(url);
-    }catch(e){ if(typeof oldExport==='function') oldExport.apply(this, arguments); }
-  };
-
-  // Patch restauração: restaura também Cotações, Orçamento Vendedores, Aprovações, Auditoria e Usuários.
-  window.importarDados=function(input){
-    const file=input && input.files && input.files[0];
-    if(!file) return;
-    const reader=new FileReader();
-    reader.onload=async function(ev){
-      try{
-        const dados=JSON.parse(ev.target.result);
-        if(!dados || (!dados.versao && !dados.nfs && !dados.localStorageFull)) { alert('Arquivo inválido.'); return; }
-        if(!confirm(`Restaurar backup de ${String(dados.data||'').slice(0,10)||'data não informada'}?\nIsso vai substituir os dados deste navegador e subir para a nuvem quando estiver online.`)) return;
-
-        // Restaura localStorage completo primeiro
-        const lsf=obj(dados.localStorageFull);
-        Object.keys(lsf).forEach(k=>{ try{ localStorage.setItem(k, lsf[k]); }catch(e){} });
-
-        // Dados principais
-        const nfsBackup=arr(dados.nfs.length?dados.nfs:parseJSON(lsf.toner_nfs, []));
-        const vendasBackup=arr(dados.vendas&&dados.vendas.length?dados.vendas:parseJSON(lsf.toner_vendas, []));
-        const defeitosBackup=arr(dados.defeitos&&dados.defeitos.length?dados.defeitos:parseJSON(lsf.toner_defeitos, []));
-        const rascBackup=arr(dados.rascunho&&dados.rascunho.length?dados.rascunho:parseJSON(lsf.toner_import_rascunho, []));
-        try{ if(typeof nfs!=='undefined') nfs=nfsBackup; }catch(e){}
-        try{ if(typeof vendas!=='undefined') vendas=vendasBackup; }catch(e){}
-        try{ if(typeof defeitos!=='undefined') defeitos=defeitosBackup; }catch(e){}
-        try{ if(typeof importVendas!=='undefined') importVendas=rascBackup; }catch(e){}
-        setLS('toner_nfs',nfsBackup); setLS('toner_vendas',vendasBackup); setLS('toner_defeitos',defeitosBackup); setLS('toner_import_rascunho',rascBackup);
-
-        // Orçamento Admin
-        const pmBackup=obj(dados.painelMensal || dados.orc_pm || parseJSON(lsf.orc_pm, {}));
-        const histOrc=arr(dados.historicoOrcamentos || dados.orcHistory || parseJSON(lsf.orc_history, []));
-        setLS('orc_pm',pmBackup); setLS('orc_history',histOrc);
-        try{ if(typeof pmDados!=='undefined') pmDados=pmBackup; }catch(e){}
-        try{ if(typeof orcHistory!=='undefined') orcHistory=histOrc; }catch(e){}
-        const next=Number(dados.proximoOrcamento || lsf.orc_num || 1) || 1;
-        try{ if(typeof orcNum!=='undefined') orcNum=next; }catch(e){}
-        localStorage.setItem('orc_num', String(next));
-
-        // Módulos novos — pega do topo ou do localStorageFull
-        const cot=arr(dados.cotacoesFornecedor || parseJSON(lsf[K_COT1], parseJSON(lsf[K_COT2], [])));
-        setLS(K_COT1,cot); setLS(K_COT2,cot);
-        const of=arr(dados.orcamentosVendedores || dados.aprovacoes || parseJSON(lsf[K_OF], []));
-        setLS(K_OF,of);
-        const aud=arr(dados.auditoria || parseJSON(lsf[K_AUD], []));
-        setLS(K_AUD,aud);
-        const users=arr(dados.usuariosSistema || parseJSON(lsf[K_USERS], []));
-        if(users.length) setLS(K_USERS,users);
-
-        // Sobe tudo para nuvem quando online
-        if(window.location.protocol!=='file:' && typeof supaSet==='function'){
-          await supaSet('nfs',nfsBackup).catch(()=>{});
-          await supaSet('vendas',vendasBackup).catch(()=>{});
-          await supaSet('defeitos',defeitosBackup).catch(()=>{});
-          await supaSet('rascunho',rascBackup).catch(()=>{});
-          await supaSet('orc_history',histOrc).catch(()=>{});
-          await supaSet('orc_pm',pmBackup).catch(()=>{});
-          await supaSet('orc_num',next).catch(()=>{});
-          await supaSet('cotacoesFornecedor',cot).catch(()=>{});
-          await supaSet(K_OF,of).catch(()=>{});
-          await supaSet(K_AUD_CLOUD,aud).catch(()=>{});
-          if(users.length) await supaSet(K_USERS_CLOUD,users).catch(()=>{});
-        }
-
-        // Redesenha tudo
-        ['populaFiltros','normalizarVendas','renderMetrics','renderEstoque','renderVendas','renderMetricasDefeitos','renderDefeitos','pmBuild','paramAtualizarAuto','orcRH','orcCalc','orcAtualizarNumeroTela','baireRenderHistoricoCotacoes','baireFuncRenderHistorico','baireAprovRender','baireAuditoriaRender','baireUserRender'].forEach(fn=>{ try{ if(typeof window[fn]==='function') window[fn](); else if(typeof eval(fn)==='function') eval(fn)(); }catch(e){} });
-
-        alert(`✓ Backup restaurado e enviado para a nuvem.\nCotações: ${cot.length}\nOrçamentos Vendedores/Aprovações: ${of.length}\nAuditoria: ${aud.length}\nOrçamentos Admin: ${histOrc.length}`);
-        try{ input.value=''; }catch(e){}
-      }catch(err){ alert('Erro ao restaurar: '+err.message); }
-    };
-    reader.readAsText(file);
-  };
-
-  // Auditoria dos módulos novos
-  function audit(mod,acao,det){ try{ if(typeof window.baireAuditoriaRegistrar==='function') window.baireAuditoriaRegistrar(mod,acao,det||'','',''); }catch(e){} }
-  function wrap(name,mod,acao,detFn){
-    const old=window[name]; if(typeof old!=='function' || old.__syncRealWrapped) return;
-    const fn=function(){ const r=old.apply(this,arguments); try{ audit(mod,acao,typeof detFn==='function'?detFn.apply(this,arguments):''); }catch(e){}; return r; };
-    fn.__syncRealWrapped=true; window[name]=fn;
-  }
-  function applyAuditWraps(){
-    wrap('baireSalvarCotacao','COTAÇÕES','SALVOU COTAÇÃO',()=>{ try{return 'Produtos: '+arr(getLS(K_COT1,[])).slice(0,1).map(c=>arr(c.itens).map(i=>i.produto).join(', ')).join('');}catch(e){return '';} });
-    wrap('baireFuncSalvarOrcamento','ORÇAMENTO VENDEDORES','SALVOU ORÇAMENTO VENDEDOR',()=>document.getElementById('of-cliente')?.value||'');
-    wrap('baireFuncExcluir','ORÇAMENTO VENDEDORES','EXCLUIU ORÇAMENTO VENDEDOR',id=>'ID '+id);
-  }
-  setTimeout(applyAuditWraps,500); setTimeout(applyAuditWraps,1800); setTimeout(applyAuditWraps,4000);
-
-  // Ao carregar online, tenta puxar módulos novos também.
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>baixarModulosNovos(false),1200));
-  else setTimeout(()=>baixarModulosNovos(false),1200);
-})();
 </script>
 
 </body></html>
