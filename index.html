@@ -4,13 +4,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Baire Controle Estoque 2026</title>
-<!-- AJUSTE 2026-06-04: Consulta de Preços por produto em matriz + Mapa de Compra separado -->
-<!-- AJUSTE 2026-06-04: mapa de compra em tela ampliada, cabeçalho fixo, qtd/valor editáveis e resumo escolhido -->
-<!-- AJUSTE 2026-06-04: mapa de compra por cotação com fornecedores horizontais, menor preço verde e seleção de compra -->
-<!-- AJUSTE 2026-06-04: Gestão + Cotação Vendas + correção leve de layout sem mexer em JSON -->
-<!-- AJUSTE 2026-06-04: filtros na aba Cotações para compra e busca de produtos em cotações de vendas -->
-<!-- AJUSTE 2026-06-02: base recomendada após comparação com GitHub; mantém data Brasil e sincronização de cotações/orçamentos -->
-<!-- AJUSTE 2026-06-01: sincronização de Cotações + COTAÇÃO VENDAS via Supabase -->
+<!-- AJUSTE 2026-06-01: sincronização de Cotações + Orçamento Vendedores via Supabase -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 14px; background: #f4f6f9; color: #222; }
@@ -148,44 +142,6 @@
 #page-orcamento .pm-intel-mini .val{font-size:20px;font-weight:800;color:#1a3a5c}
 #page-orcamento .pm-intel-mini .hint{font-size:11px;color:#94a3b8;margin-top:3px;line-height:1.3}
 
-
-/* Mapa de compra por cotação */
-.cot-mapa-box{margin:14px 0 18px;border:1px solid #dbe3ee;border-radius:10px;background:#fff;overflow:hidden}
-.cot-mapa-title{padding:10px 12px;background:#f8fafc;border-bottom:1px solid #e5e7eb;font-weight:800;color:#1a3a5c;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.cot-mapa-scroll{overflow:auto;max-width:100%}
-.cot-mapa-table{width:100%;border-collapse:collapse;min-width:980px}
-.cot-mapa-table th{background:#0a2342;color:#fff;text-align:center;position:sticky;top:0;z-index:2}
-.cot-mapa-table th:first-child,.cot-mapa-table td:first-child{position:sticky;left:0;z-index:1;background:#fff}
-.cot-mapa-table th:first-child{background:#0a2342;z-index:3}
-.cot-mapa-table td{vertical-align:middle;text-align:center}
-.cot-prod-cell{text-align:left!important;font-weight:800;color:#1a3a5c;min-width:180px}
-.cot-qtd-cell{font-weight:700;color:#475569;min-width:70px}
-.cot-preco-cell{min-width:150px;line-height:1.45}
-.cot-melhor{background:#dcfce7!important;border:2px solid #22c55e!important;color:#14532d}
-.cot-sem-preco{background:#f8fafc;color:#94a3b8}
-.cot-cell-total{font-size:11px;color:#64748b}
-.cot-escolha{display:block;margin-top:5px;font-size:11px;color:#0f172a}
-.cot-total-row td{background:#f8fafc!important;font-weight:800}
-.cot-total-escolhido td{background:#eff6ff!important;font-weight:800}
-.cot-mapa-scroll{max-height:64vh;border-top:0}
-.cot-mapa-table thead th{position:sticky!important;top:0!important;z-index:12!important}
-.cot-mapa-table tfoot td{position:sticky;bottom:0;z-index:11;box-shadow:0 -1px 0 #e5e7eb}
-.cot-mapa-table th:nth-child(1),.cot-mapa-table td:nth-child(1){position:sticky!important;left:0!important;z-index:13!important}
-.cot-mapa-table th:nth-child(2),.cot-mapa-table td:nth-child(2){position:sticky!important;left:190px!important;z-index:12!important;background:#fff}
-.cot-mapa-table th:nth-child(1),.cot-mapa-table th:nth-child(2){background:#0a2342!important;color:#fff!important}
-.cot-prod-cell{min-width:190px!important;max-width:220px!important}
-.cot-qtd-cell{min-width:90px!important;max-width:100px!important}
-.cot-map-qtd-input,.cot-map-valor-input{width:82px;border:1px solid #cbd5e1;border-radius:6px;padding:5px 7px;text-align:right;font-size:12px;background:#fff}
-.cot-map-valor-input{font-weight:800;color:#0f172a}
-.cot-map-qtd-input:focus,.cot-map-valor-input:focus{border-color:#0ea5e9;box-shadow:0 0 0 2px rgba(14,165,233,.12);outline:none}
-.cot-mapa-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.cot-mapa-actions button{padding:6px 10px;font-size:12px;border-radius:8px}
-.cot-mapa-box.cot-mapa-fullscreen{position:fixed!important;left:12px!important;right:12px!important;top:72px!important;bottom:12px!important;z-index:3000!important;display:flex!important;flex-direction:column!important;box-shadow:0 12px 35px rgba(0,0,0,.30);border:2px solid #1a3a5c;background:#fff}
-.cot-mapa-box.cot-mapa-fullscreen .cot-mapa-title{position:sticky;top:0;z-index:40;background:#f8fafc}
-.cot-mapa-box.cot-mapa-fullscreen .cot-mapa-scroll{max-height:none!important;flex:1!important}
-.cot-mapa-box.cot-mapa-fullscreen .cot-btn-fechar{display:inline-flex!important}
-.cot-btn-fechar{display:none!important}
-.cot-mapa-ajuda{font-size:11px;color:#64748b;font-weight:600;margin-top:2px}
 </style>
 
 <style>
@@ -226,71 +182,6 @@
 </style>
 
 
-
-
-<style>
-/* AJUSTE 2026-06-04: correção leve do layout da aba GESTÃO
-   - não altera JSON, cálculos nem sincronização
-   - evita campo cortado
-   - reduz espaço vazio sem usar margem negativa perigosa
-*/
-#page-orcamento{
-  padding: 10px 16px 90px !important;
-  min-height: auto !important;
-  overflow: visible !important;
-}
-#page-orcamento .orc-tabs{
-  position: sticky !important;
-  top: 118px !important;
-  z-index: 98 !important;
-  background: #fff !important;
-  margin: 0 -16px 12px -16px !important;
-  padding: 6px 16px 0 16px !important;
-  border-bottom: 1px solid #dbe3ec !important;
-  box-shadow: 0 2px 8px rgba(15,23,42,.06) !important;
-}
-#page-orcamento .orc-tab{
-  padding: 10px 18px !important;
-  min-height: 42px !important;
-}
-#page-orcamento .orc-subpage{
-  padding-top: 0 !important;
-  overflow: visible !important;
-}
-#page-orcamento #onovo .orc-topline{
-  margin: 6px 0 12px 0 !important;
-  min-height: 36px !important;
-}
-#page-orcamento #onovo .orc-budget-layout{
-  margin-top: 0 !important;
-  align-items: start !important;
-}
-#page-orcamento #onovo .orc-main-panel{
-  overflow: visible !important;
-  padding: 14px !important;
-}
-#page-orcamento #onovo #orc-info-bar{
-  margin-top: 0 !important;
-  margin-bottom: 12px !important;
-  overflow: visible !important;
-  align-items: end !important;
-}
-#page-orcamento #onovo #orc-info-bar input,
-#page-orcamento #onovo #orc-info-bar select{
-  min-height: 38px !important;
-  line-height: 20px !important;
-  padding-top: 8px !important;
-  padding-bottom: 8px !important;
-}
-#page-orcamento #onovo .orc-side{
-  top: 170px !important;
-}
-@media(max-width:1250px){
-  #page-orcamento .orc-tabs{top:118px!important;}
-  #page-orcamento #onovo .orc-side{position:static!important;}
-}
-</style>
-
 <script>
 // Data local Brasil (corrige virada UTC: evita gravar 02/06 quando no Brasil ainda é 01/06)
 function baireHojeLocalISO(){
@@ -330,7 +221,7 @@ function baireHojeLocalISO(){
   <div class="tab" onclick="showPage(&#39;importar&#39;)">📥 Importar CSV</div>
   <div class="tab active" onclick="showPage(&#39;defeitos&#39;)">⚠️ Defeitos</div>
   <div class="tab" onclick="showPage(&#39;produtos&#39;)">🗂️ Produtos</div>
-  <div class="tab" onclick="showPage(&#39;orcamento&#39;)">📋 GESTÃO</div>
+  <div class="tab" onclick="showPage(&#39;orcamento&#39;)">📋 Orçamento</div>
 </div>
 </div><!-- end sticky wrapper -->
 
@@ -3906,7 +3797,7 @@ async function carregarNuvem() {
 
 
 
-    // Sincroniza ORÇAMENTOS DOS VENDEDORES (aba COTAÇÃO VENDAS) entre computadores.
+    // Sincroniza ORÇAMENTOS DOS VENDEDORES (aba Orçamento Vendedores) entre computadores.
     try {
       const ofLocal = JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios') || '[]');
       const ofCloud = Array.isArray(orcFuncData) ? orcFuncData : [];
@@ -3915,7 +3806,7 @@ async function carregarNuvem() {
       await supaSet('baire_orcamentos_funcionarios', ofMerge).catch(()=>{});
       if (typeof window.baireFuncRenderHistorico === 'function') setTimeout(window.baireFuncRenderHistorico, 100);
       if (typeof window.baireAprovRender === 'function') setTimeout(window.baireAprovRender, 150);
-    } catch(e) { console.warn('Falha ao sincronizar cotações de vendas:', e); }
+    } catch(e) { console.warn('Falha ao sincronizar orçamentos dos vendedores:', e); }
 
     // Salva tudo no localStorage como fallback
     localStorage.setItem('toner_nfs', JSON.stringify(nfs));
@@ -7394,7 +7285,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 </style>
 
 <div id="page-orcamento" class="page">
-  <div class="orc-tabs">
+  <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:8px">
+    <button id="btnSalvarOrcamentoTopo" onclick="salvarOrcamentoTopoSeguro()">💾 Salvar orçamento</button>
+  </div>
+<div class="orc-tabs">
   <button class="orc-tab active" onclick="orcShowTab('onovo')">📋 Orçamento</button>
   <button class="orc-tab" onclick="orcShowTab('ohist')">📂 Histórico</button>
   <button class="orc-tab" onclick="orcShowTab('opainel')">📊 Painel Mensal</button>
@@ -7405,7 +7299,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 <div class="orc-subpage active" id="onovo">
   <div class="orc-topline">
     <span style="font-size:15px;font-weight:700;color:#1a3a5c" id="orc-num-lbl">Orçamento #001</span>
-    <button id="btnSalvarOrcamentoTopo" onclick="salvarOrcamentoTopoSeguro()">💾 Salvar orçamento</button>
   </div>
   <div id="orc-status-box" class="orc-status-box">
     <strong>Status do orçamento:</strong>
@@ -8747,69 +8640,6 @@ function salvarOrcamentoTopoSeguro(){
           </div>
         </div>
       </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>🔎 Consulta de Cotações e Compras</h2>
-            <div class="help">Use para localizar produto cotado, comparar fornecedores e visualizar o melhor local para comprar. Também permite buscar o produto nos orçamentos de venda.</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn-primary" onclick="baireRenderPainelCompraCotacoes()">Atualizar consulta</button>
-          </div>
-        </div>
-        <div style="padding:16px">
-          <div class="form-grid" style="grid-template-columns:220px 1fr">
-            <div class="form-group">
-              <label>Ver cotação de compra</label>
-              <select id="cot-analise-id" onchange="baireRenderPainelCompraCotacoes()"><option value="">Todas as cotações</option></select>
-            </div>
-            <div class="form-group">
-              <label>Buscar produto/SKU nas cotações de compra</label>
-              <input type="text" id="cot-analise-prod" placeholder="Ex.: 285A, TN660, 219A..." oninput="baireRenderPainelCompraCotacoes()">
-            </div>
-          </div>
-          <div class="help" id="cot-analise-resumo" style="margin:10px 0 8px">Digite um produto ou selecione uma cotação para comparar fornecedores.</div>
-          <div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:18px">
-            <table style="min-width:980px">
-              <thead><tr><th>Cotação</th><th>Data</th><th>Produto</th><th>Fornecedor</th><th style="text-align:right">Valor un.</th><th style="text-align:right">Qtd</th><th style="text-align:right">Total</th><th>Compra</th></tr></thead>
-              <tbody id="cot-analise-body"><tr><td colspan="8" class="empty">Nenhuma consulta carregada.</td></tr></tbody>
-            </table>
-          </div>
-
-          <div class="cot-mapa-box" id="cot-mapa-wrap">
-            <div class="cot-mapa-title">
-              <div><span>🧾 Mapa de compra da cotação</span><div class="cot-mapa-ajuda" id="cot-mapa-status">Selecione uma cotação para abrir o mapa por fornecedor.</div></div>
-              <div class="cot-mapa-actions">
-                <button class="btn-secondary" onclick="baireMarcarMenoresMapaCompra()">✅ Marcar menores</button>
-                <button class="btn-primary" onclick="baireToggleMapaCompraTelaCheia(true)">🔎 Abrir mapa</button>
-                <button class="btn-secondary cot-btn-fechar" onclick="baireToggleMapaCompraTelaCheia(false)">Fechar</button>
-              </div>
-            </div>
-            <div class="cot-mapa-scroll">
-              <table class="cot-mapa-table" id="cot-mapa-table">
-                <tbody><tr><td class="empty">Selecione uma cotação acima para visualizar produtos x fornecedores.</td></tr></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="form-grid" style="grid-template-columns:1fr 180px">
-            <div class="form-group">
-              <label>Buscar produto/SKU nos orçamentos de venda</label>
-              <input type="text" id="cot-venda-prod" placeholder="Ex.: 285A, TN660, 219A..." oninput="baireRenderBuscaProdutoVenda()">
-            </div>
-            <div class="form-group">
-              <label>&nbsp;</label>
-              <button class="btn-secondary" onclick="baireRenderBuscaProdutoVenda()">Buscar em vendas</button>
-            </div>
-          </div>
-          <div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:8px;margin-top:10px">
-            <table style="min-width:900px">
-              <thead><tr><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Produto</th><th style="text-align:right">Qtd</th><th style="text-align:right">Venda sugerida</th><th style="text-align:right">Valor cliente</th><th>Status</th><th>Ação</th></tr></thead>
-              <tbody id="cot-venda-body"><tr><td colspan="9" class="empty">Digite um produto para localizar nos orçamentos de venda.</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
       <div class="card">
         <div class="card-header">
           <h2>Histórico de Cotações</h2>
@@ -8913,223 +8743,7 @@ function salvarOrcamentoTopoSeguro(){
     const prods = itens.map(i=>i.produto).join(', ');
     alert(okNuvem ? ('✓ Cotação salva no histórico e sincronizada na nuvem: '+prods) : ('✓ Cotação salva no histórico local. ATENÇÃO: não consegui confirmar a nuvem agora: '+prods));
   };
-
-  function cotacaoNome(c){
-    const lista=cotacoes().slice().sort((a,b)=>String(a.data||'').localeCompare(String(b.data||'')) || String(a.id).localeCompare(String(b.id)));
-    const idx=lista.findIndex(x=>String(x.id)===String(c.id));
-    const num=(idx>=0?idx+1:1);
-    return 'COTAÇÃO '+String(num).padStart(3,'0');
-  }
-  function fmtMoedaCot(n){ n=Number(n)||0; return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
-  function atualizarSelectAnaliseCotacoes(){
-    const sel=qs('cot-analise-id'); if(!sel) return;
-    const atual=sel.value;
-    const arr=cotacoes().slice().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')) || String(b.id).localeCompare(String(a.id)));
-    sel.innerHTML='<option value="">Todas as cotações</option>'+arr.map(c=>`<option value="${esc(c.id)}">${esc(cotacaoNome(c))} — ${fmtData(c.data)} — ${(c.itens||[]).length} itens</option>`).join('');
-    if([...sel.options].some(o=>o.value===atual)) sel.value=atual;
-  }
-  function baireFornecedorId(f){ return String(f||'').replace(/[^a-zA-Z0-9]/g,'_'); }
-  function baireValorMapaInput(v){
-    const n=Number(v)||0;
-    return n ? String(n.toFixed(2)).replace('.',',') : '0,00';
-  }
-  window.baireToggleMapaCompraTelaCheia=function(abrir){
-    const box=qs('cot-mapa-wrap'); if(!box) return;
-    if(abrir) box.classList.add('cot-mapa-fullscreen'); else box.classList.remove('cot-mapa-fullscreen');
-  };
-
-  function baireMontarMapaCompraCotacao(arr,busca){
-    const tabela=qs('cot-mapa-table');
-    const status=qs('cot-mapa-status');
-    if(!tabela) return;
-    const id=String(qs('cot-analise-id')?.value||'');
-    if(!id){
-      tabela.innerHTML='<tbody><tr><td class="empty">Selecione uma cotação específica para abrir o mapa de compra.</td></tr></tbody>';
-      if(status) status.textContent='Selecione uma cotação para comparar fornecedores na horizontal.';
-      return;
-    }
-    const cot=arr.find(c=>String(c.id)===id) || cotacoes().find(c=>String(c.id)===id);
-    if(!cot){
-      tabela.innerHTML='<tbody><tr><td class="empty">Cotação não encontrada.</td></tr></tbody>';
-      if(status) status.textContent='Cotação não encontrada.';
-      return;
-    }
-    const itens=(cot.itens||[]).filter(item=>{
-      const prod=normaliza(item.produto||'');
-      return !busca || prod.includes(busca);
-    });
-    if(!itens.length){
-      tabela.innerHTML='<tbody><tr><td class="empty">Nenhum produto encontrado nesta cotação.</td></tr></tbody>';
-      if(status) status.textContent='Nenhum produto encontrado nesta cotação.';
-      return;
-    }
-    const fornecedores=[];
-    itens.forEach(item=>{
-      valoresItem(item).forEach(v=>{
-        if(v.valor>0 && !fornecedores.includes(v.fornecedor)) fornecedores.push(v.fornecedor);
-      });
-    });
-    fornecedores.sort((a,b)=>String(a).localeCompare(String(b),'pt-BR'));
-    if(!fornecedores.length){
-      tabela.innerHTML='<tbody><tr><td class="empty">Esta cotação não tem valores por fornecedor.</td></tr></tbody>';
-      if(status) status.textContent='Sem valores por fornecedor.';
-      return;
-    }
-    let html='<thead><tr><th>Produto</th><th>Qtd</th>'+fornecedores.map(f=>`<th>${esc(f)}</th>`).join('')+'<th>Fornecedor escolhido</th></tr></thead><tbody>';
-    itens.forEach((item,idx)=>{
-      const prod=normaliza(item.produto||'');
-      const qtd=numBR(item.qtd||0);
-      const vals=valoresItem(item).filter(v=>v.valor>0);
-      const menor=vals.length?Math.min(...vals.map(v=>Number(v.valor)||0)):0;
-      let fornecedorMenor='';
-      vals.forEach(v=>{ if(Number(v.valor)===menor && !fornecedorMenor) fornecedorMenor=v.fornecedor; });
-      html+=`<tr data-row="${idx}"><td class="cot-prod-cell">${esc(prod||'-')}</td><td class="cot-qtd-cell"><input class="cot-map-qtd-input" type="number" min="0" step="1" value="${qtd||0}" data-row="${idx}" onchange="baireRecalcularMapaCompra()" oninput="baireRecalcularMapaCompra()"></td>`;
-      fornecedores.forEach(f=>{
-        const v=vals.find(x=>x.fornecedor===f);
-        if(!v){ html+=`<td class="cot-sem-preco" data-row="${idx}" data-forn="${esc(f)}">—</td>`; return; }
-        const isMelhor=Number(v.valor)===menor;
-        html+=`<td class="cot-preco-cell ${isMelhor?'cot-melhor':''}" data-row="${idx}" data-forn="${esc(f)}"><input class="cot-map-valor-input" value="${baireValorMapaInput(v.valor)}" data-row="${idx}" data-forn="${esc(f)}" onchange="baireRecalcularMapaCompra()" oninput="baireRecalcularMapaCompra()"><div class="cot-cell-total">Total: ${qtd?fmtMoedaCot((Number(v.valor)||0)*qtd):'-'}</div><label class="cot-escolha"><input type="radio" name="cot_escolha_${idx}" data-prod="${esc(prod)}" data-forn="${esc(f)}" data-total="0" ${isMelhor?'checked':''} onchange="baireAtualizarTotaisMapaCompra()"> comprar aqui</label></td>`;
-      });
-      html+=`<td id="cot-escolhido-${idx}">${esc(fornecedorMenor||'-')}</td></tr>`;
-    });
-    html+='</tbody><tfoot>';
-    html+='<tr class="cot-total-row"><td colspan="2">Total cotado por fornecedor</td>'+fornecedores.map(f=>`<td id="cot-total-cotado-${baireFornecedorId(f)}">R$ 0,00</td>`).join('')+'<td>—</td></tr>';
-    html+='<tr class="cot-total-escolhido"><td colspan="2">Total escolhido para compra</td>'+fornecedores.map(f=>`<td id="cot-total-escolhido-${baireFornecedorId(f)}">R$ 0,00</td>`).join('')+'<td id="cot-total-geral-escolhido">R$ 0,00</td></tr>';
-    html+='</tfoot>';
-    tabela.innerHTML=html;
-    tabela.setAttribute('data-fornecedores', JSON.stringify(fornecedores));
-    if(status) status.textContent=`${cotacaoNome(cot)} — ${fmtData(cot.data)} | ${itens.length} produto(s) | ${fornecedores.length} fornecedor(es). Valores e quantidades podem ser editados no mapa.`;
-    setTimeout(()=>baireRecalcularMapaCompra(),0);
-  }
-
-  window.baireRecalcularMapaCompra=function(){
-    const tabela=qs('cot-mapa-table'); if(!tabela) return;
-    let fornecedores=[];
-    try{ fornecedores=JSON.parse(tabela.getAttribute('data-fornecedores')||'[]'); }catch(e){}
-    const totaisCotados={}; fornecedores.forEach(f=>totaisCotados[f]=0);
-    const rows=[...tabela.querySelectorAll('tbody tr[data-row]')];
-    rows.forEach(tr=>{
-      const idx=tr.getAttribute('data-row');
-      const qtd=numBR(tr.querySelector('.cot-map-qtd-input')?.value||0);
-      const cells=[...tr.querySelectorAll('.cot-preco-cell[data-forn]')];
-      const valores=cells.map(td=>{
-        const inp=td.querySelector('.cot-map-valor-input');
-        return {td, inp, forn:td.getAttribute('data-forn')||'', valor:numBR(inp?.value||0)};
-      }).filter(x=>x.valor>0);
-      const menor=valores.length?Math.min(...valores.map(x=>x.valor)):0;
-      valores.forEach(x=>{
-        const total=x.valor*qtd;
-        totaisCotados[x.forn]=(totaisCotados[x.forn]||0)+total;
-        x.td.classList.toggle('cot-melhor', x.valor===menor);
-        const div=x.td.querySelector('.cot-cell-total'); if(div) div.textContent='Total: '+(qtd?fmtMoedaCot(total):'-');
-        const radio=x.td.querySelector('input[type=radio]'); if(radio) radio.setAttribute('data-total', String(total));
-      });
-      const checked=tr.querySelector('input[type=radio][data-forn]:checked');
-      const escolhido=qs('cot-escolhido-'+idx);
-      if(escolhido) escolhido.textContent=checked ? (checked.getAttribute('data-forn')||'-') : '-';
-    });
-    fornecedores.forEach(f=>{
-      const id='cot-total-cotado-'+baireFornecedorId(f);
-      const el=qs(id); if(el) el.textContent=fmtMoedaCot(totaisCotados[f]||0);
-    });
-    baireAtualizarTotaisMapaCompra();
-  };
-
-  window.baireMarcarMenoresMapaCompra=function(){
-    const tabela=qs('cot-mapa-table'); if(!tabela) return;
-    [...tabela.querySelectorAll('tbody tr[data-row]')].forEach(tr=>{
-      const melhor=tr.querySelector('.cot-preco-cell.cot-melhor input[type=radio]');
-      if(melhor) melhor.checked=true;
-    });
-    baireAtualizarTotaisMapaCompra();
-  };
-
-  window.baireAtualizarTotaisMapaCompra=function(){
-    const tabela=qs('cot-mapa-table'); if(!tabela) return;
-    let fornecedores=[];
-    try{ fornecedores=JSON.parse(tabela.getAttribute('data-fornecedores')||'[]'); }catch(e){}
-    const totais={}; fornecedores.forEach(f=>totais[f]=0);
-    let geral=0;
-    const radios=[...tabela.querySelectorAll('input[type=radio][data-forn]:checked')];
-    radios.forEach(r=>{
-      const f=r.getAttribute('data-forn')||'';
-      const total=Number(r.getAttribute('data-total')||0)||0;
-      totais[f]=(totais[f]||0)+total; geral+=total;
-      const name=r.getAttribute('name')||'';
-      const idx=name.replace('cot_escolha_','');
-      const cell=qs('cot-escolhido-'+idx); if(cell) cell.textContent=f;
-    });
-    fornecedores.forEach(f=>{
-      const id='cot-total-escolhido-'+baireFornecedorId(f);
-      const el=qs(id); if(el) el.textContent=fmtMoedaCot(totais[f]||0);
-    });
-    const g=qs('cot-total-geral-escolhido'); if(g) g.textContent='Total geral: '+fmtMoedaCot(geral);
-  };
-
-    window.baireRenderPainelCompraCotacoes=function(){
-    atualizarSelectAnaliseCotacoes();
-    const tb=qs('cot-analise-body'); if(!tb) return;
-    const resumo=qs('cot-analise-resumo');
-    const id=String(qs('cot-analise-id')?.value||'');
-    const busca=normaliza(qs('cot-analise-prod')?.value||'');
-    let arr=cotacoes().slice().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')) || String(b.id).localeCompare(String(a.id)));
-    if(id) arr=arr.filter(c=>String(c.id)===id);
-    const linhas=[];
-    arr.forEach(c=>{
-      (c.itens||[]).forEach(item=>{
-        const prod=normaliza(item.produto||'');
-        if(busca && !prod.includes(busca)) return;
-        const qtd=numBR(item.qtd||0);
-        valoresItem(item).forEach(v=>{
-          linhas.push({cotacao:cotacaoNome(c), id:c.id, data:c.data||'', produto:prod, fornecedor:v.fornecedor, valor:v.valor, qtd, total:v.valor*qtd});
-        });
-      });
-    });
-    baireMontarMapaCompraCotacao(arr,busca);
-    if(!linhas.length){
-      tb.innerHTML='<tr><td colspan="8" class="empty">Nenhum produto encontrado nas cotações.</td></tr>';
-      if(resumo) resumo.textContent='Nenhum resultado encontrado.';
-      return;
-    }
-    const minPorGrupo={};
-    linhas.forEach(l=>{
-      const chave=String(l.id)+'|'+normaliza(l.produto);
-      if(!minPorGrupo[chave] || l.valor<minPorGrupo[chave]) minPorGrupo[chave]=l.valor;
-    });
-    linhas.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(a.produto).localeCompare(String(b.produto),'pt-BR') || a.valor-b.valor);
-    tb.innerHTML=linhas.map(l=>{
-      const chave=String(l.id)+'|'+normaliza(l.produto);
-      const melhor=Number(l.valor)===Number(minPorGrupo[chave]);
-      return `<tr${melhor?' style="background:#f0fdf4"':''}><td>${esc(l.cotacao)}</td><td>${fmtData(l.data)}</td><td><strong>${esc(l.produto)}</strong></td><td>${esc(l.fornecedor)}</td><td style="text-align:right;font-weight:700">${fmtMoedaCot(l.valor)}</td><td style="text-align:right">${l.qtd||'-'}</td><td style="text-align:right">${l.qtd?fmtMoedaCot(l.total):'-'}</td><td>${melhor?'<span class="badge badge-ok">MELHOR PREÇO</span>':'<span class="badge badge-zero">comparar</span>'}</td></tr>`;
-    }).join('');
-    if(resumo){
-      const prodCount=new Set(linhas.map(l=>l.produto)).size;
-      const fornCount=new Set(linhas.map(l=>l.fornecedor)).size;
-      resumo.textContent=`${linhas.length} preços encontrados | ${prodCount} produto(s) | ${fornCount} fornecedor(es). O menor valor de cada produto aparece em verde.`;
-    }
-  };
-  window.baireRenderBuscaProdutoVenda=function(){
-    const tb=qs('cot-venda-body'); if(!tb) return;
-    const busca=normaliza(qs('cot-venda-prod')?.value||'');
-    if(!busca){ tb.innerHTML='<tr><td colspan="9" class="empty">Digite um produto para localizar nos orçamentos de venda.</td></tr>'; return; }
-    let arr=[]; try{ arr=JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios')||'[]')||[]; }catch(e){ arr=[]; }
-    const linhas=[];
-    arr.forEach(o=>{
-      (o.itens||[]).forEach(i=>{
-        const prod=normaliza(i.produto||'');
-        if(!prod.includes(busca)) return;
-        linhas.push({orcId:o.id,data:o.data||'',cliente:o.cliente||'',funcionario:o.funcionario||'',produto:prod,qtd:numBR(i.qtd||0),sugerida:numBR(i.vendaSugerida||0),clienteValor:numBR(i.vendaCliente||0),status:i.status||o.status||''});
-      });
-    });
-    linhas.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(b.orcId).localeCompare(String(a.orcId)));
-    if(!linhas.length){ tb.innerHTML='<tr><td colspan="9" class="empty">Produto não encontrado nos orçamentos de venda.</td></tr>'; return; }
-    tb.innerHTML=linhas.map(l=>`<tr><td>${fmtData(l.data)}</td><td>${esc(l.cliente||'-')}</td><td>${esc(l.funcionario||'-')}</td><td><strong>${esc(l.produto)}</strong></td><td style="text-align:right">${l.qtd||'-'}</td><td style="text-align:right">${l.sugerida?fmtMoedaCot(l.sugerida):'-'}</td><td style="text-align:right">${l.clienteValor?fmtMoedaCot(l.clienteValor):'-'}</td><td><span class="badge ${(normaliza(l.status).includes('APROV')||normaliza(l.status).includes('EXCELENTE'))?'badge-ok':(normaliza(l.status).includes('REPROV')||normaliza(l.status).includes('COTAR'))?'badge-alert':'badge-warn'}">${esc(l.status||'-')}</span></td><td><button class="btn-secondary btn-sm" onclick="if(typeof baireFuncAbrir==='function'){baireFuncAbrir(${l.orcId});}">Abrir</button></td></tr>`).join('');
-  };
-
   window.baireRenderHistoricoCotacoes=function(){
-    atualizarSelectAnaliseCotacoes();
-    try{ window.baireRenderPainelCompraCotacoes(); }catch(e){}
-    try{ window.baireRenderBuscaProdutoVenda(); }catch(e){}
     const tb=qs('cot-hist'); if(!tb) return;
     const q=normaliza(qs('cot-busca')?.value||'');
     let arr=cotacoes();
@@ -9403,7 +9017,7 @@ function salvarOrcamentoTopoSeguro(){
       const t=document.createElement('div');
       t.className='tab'; t.setAttribute('data-baire-orc-func-tab','1');
       t.onclick=()=>showPage('orc-func');
-      t.textContent='👤 COTAÇÃO VENDAS';
+      t.textContent='👤 Orçamento Vendedores';
       const cot=[...tabs.querySelectorAll('.tab')].find(x=>x.textContent.toLowerCase().includes('cotações'));
       tabs.insertBefore(t, cot ? cot.nextSibling : null);
     }
@@ -9412,7 +9026,7 @@ function salvarOrcamentoTopoSeguro(){
       <div class="card">
         <div class="card-header">
           <div>
-            <h2>👤 COTAÇÃO VENDAS</h2>
+            <h2>👤 Orçamento Vendedores</h2>
             <div class="help">Tela sem custo, margem, fornecedor ou sobra. Usa a mesma regra da aba Orçamento administrativo. Se aparecer APROVADO/EXCELENTE, pode vender. Se aparecer REPROVADO ou PEDIR COTAÇÃO, precisa aprovação/cotação.</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -9493,6 +9107,8 @@ function salvarOrcamentoTopoSeguro(){
   window.baireFuncNovoOrcamento=function(){
     if(qs('of-data')) qs('of-data').value=hojeISO();
     if(qs('of-cliente')) qs('of-cliente').value='';
+    // Sempre prepara o campo Vendedor pelo usuário logado; nunca reaproveita o último valor salvo (ex.: VERINHA).
+    aplicarRestricaoVendedorTela();
     const body=qs('of-body'); if(body){ body.innerHTML=''; body.appendChild(montarLinha({})); }
     atualizarProdutos(); window.baireFuncRenderHistorico();
   };
@@ -9517,7 +9133,10 @@ function salvarOrcamentoTopoSeguro(){
   window.baireFuncSalvarOrcamento=function(){
     const itens=linhas().map(i=>{ const c=calculaLinha(i); return {...i, status:c.status, cotacaoData:c.cot?.data||'', custoBaseInterno:c.custoUnit, vendaSugerida:c.sugerido, criadoEm:new Date().toISOString()}; });
     if(!itens.length){ alert('Inclua pelo menos um produto.'); return; }
-    const obj={id:Date.now(), data:qs('of-data')?.value||hojeISO(), cliente:normaliza(qs('of-cliente')?.value||''), funcionario:normaliza(qs('of-funcionario')?.value||''), itens, status:statusGeral(itens), criadoEm:new Date().toISOString(), atualizadoEm:new Date().toISOString()};
+    aplicarRestricaoVendedorTela();
+    const uLog=usuarioLogadoOrcFunc();
+    const funcionarioAtual=normaliza(uLog?.nome||uLog?.usuario||qs('of-funcionario')?.value||'');
+    const obj={id:Date.now(), data:qs('of-data')?.value||hojeISO(), cliente:normaliza(qs('of-cliente')?.value||''), funcionario:funcionarioAtual, criadoPor:funcionarioAtual, usuarioCriador:normaliza(uLog?.usuario||funcionarioAtual), itens, status:statusGeral(itens), criadoEm:new Date().toISOString(), atualizadoEm:new Date().toISOString()};
     const arr=hist();
     arr.unshift(obj);
     salvarHist(arr);
@@ -9539,15 +9158,37 @@ function salvarOrcamentoTopoSeguro(){
       return `<div><strong>${esc(i.produto||'-')}</strong> — Qtd: ${qtd} | Sugerido: ${moeda(vendaSug)} | Cliente: ${vendaCliente?moeda(vendaCliente):'—'} | Total: ${moeda(total)} <span class="badge ${classeStatusVendedor(i.status)}">${status}</span></div>`;
     }).join('')}</div>`;
   }
+  function usuarioLogadoOrcFunc(){
+    try{ if(typeof window.baireLoginAtual==='function') return window.baireLoginAtual() || null; }catch(e){}
+    return null;
+  }
+  function isVendedorRestrito(){
+    const u=usuarioLogadoOrcFunc();
+    return !!u && normaliza(u.perfil||'')==='VENDEDOR';
+  }
+  function pertenceAoVendedorLogado(o){
+    if(!isVendedorRestrito()) return true;
+    const u=usuarioLogadoOrcFunc() || {};
+    const vendedorRegistro=normaliza(o?.funcionario||o?.vendedor||o?.criadoPor||'');
+    const nomes=[u.nome,u.usuario].map(normaliza).filter(Boolean);
+    // Apelidos usuais para não misturar usuários, mas permitir nome curto cadastrado.
+    if(nomes.includes('CRISTIANE')) nomes.push('CRIS');
+    if(nomes.includes('VERINHA')) nomes.push('VERA');
+    return nomes.includes(vendedorRegistro);
+  }
   window.baireFuncRenderHistorico=function(){
     const tb=qs('of-hist'); if(!tb) return;
     const q=normaliza(qs('of-busca')?.value||'');
-    let arr=hist(); if(q) arr=arr.filter(o=>normaliza(JSON.stringify(o)).includes(q));
-    if(!arr.length){ tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum orçamento de vendedor salvo ainda.</td></tr>'; return; }
+    const vendedorRestrito=isVendedorRestrito();
+    let arr=hist().filter(pertenceAoVendedorLogado);
+    if(q) arr=arr.filter(o=>normaliza(JSON.stringify(o)).includes(q));
+    if(!arr.length){ tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum orçamento seu salvo ainda.</td></tr>'; return; }
     tb.innerHTML=arr.map(o=>{
       const stFinal=o.statusAdmin || o.status || '-';
       const detalhe=o.aprovadoPor ? `<div class="help">por ${esc(o.aprovadoPor)} ${o.aprovadoEm?('em '+new Date(o.aprovadoEm).toLocaleString('pt-BR')):''}</div>` : '';
-      return `<tr><td>${fmtData(o.data)}</td><td>${esc(o.cliente||'-')}</td><td>${esc(o.funcionario||'-')}</td><td>${resumoItensHistorico(o)}</td><td><span class="badge ${classeStatusVendedor(stFinal)}">${esc(stFinal)}</span>${detalhe}</td><td><button class="btn-secondary btn-sm" onclick="baireFuncAbrir(${o.id})">Abrir</button> <button class="btn-green btn-sm" onclick="baireFuncDecidir(${o.id},'APROVADO ADMIN')">Aprovar</button> <button class="btn-secondary btn-sm" onclick="baireFuncDecidir(${o.id},'SOLICITAR AJUSTE')">Ajuste</button> <button class="btn-danger btn-sm" onclick="baireFuncDecidir(${o.id},'REPROVADO ADMIN')">Reprovar</button> <button class="btn-danger btn-sm" onclick="baireFuncExcluir(${o.id})">Excluir</button></td></tr>`;
+      const acoesAdmin = `<button class="btn-secondary btn-sm" onclick="baireFuncAbrir(${o.id})">Abrir</button> <button class="btn-green btn-sm" onclick="baireFuncDecidir(${o.id},'APROVADO ADMIN')">Aprovar</button> <button class="btn-secondary btn-sm" onclick="baireFuncDecidir(${o.id},'SOLICITAR AJUSTE')">Ajuste</button> <button class="btn-danger btn-sm" onclick="baireFuncDecidir(${o.id},'REPROVADO ADMIN')">Reprovar</button> <button class="btn-danger btn-sm" onclick="baireFuncExcluir(${o.id})">Excluir</button>`;
+      const acoesVendedor = '<span class="help">Somente consulta</span>';
+      return `<tr><td>${fmtData(o.data)}</td><td>${esc(o.cliente||'-')}</td><td>${esc(o.funcionario||'-')}</td><td>${resumoItensHistorico(o)}</td><td><span class="badge ${classeStatusVendedor(stFinal)}">${esc(stFinal)}</span>${detalhe}</td><td>${vendedorRestrito?acoesVendedor:acoesAdmin}</td></tr>`;
     }).join('');
   };
   window.baireFuncAbrir=function(id){
@@ -9579,7 +9220,7 @@ function salvarOrcamentoTopoSeguro(){
       document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
       qs('page-orc-func')?.classList.add('active');
       document.querySelector('[data-baire-orc-func-tab]')?.classList.add('active');
-      atualizarProdutos(); if(!qs('of-data')?.value) window.baireFuncNovoOrcamento(); else window.baireFuncAtualizarTela(); window.baireFuncRenderHistorico();
+      atualizarProdutos(); aplicarRestricaoVendedorTela(); if(!qs('of-data')?.value) window.baireFuncNovoOrcamento(); else window.baireFuncAtualizarTela(); window.baireFuncRenderHistorico();
       return;
     }
     if(typeof oldShow==='function') return oldShow(id);
@@ -9603,7 +9244,23 @@ function salvarOrcamentoTopoSeguro(){
     }
   });
 
-  function init(){ criarAba(); atualizarProdutos(); window.baireFuncNovoOrcamento(); window.baireFuncRenderHistorico(); }
+  function aplicarRestricaoVendedorTela(){
+    const sel=qs('of-funcionario');
+    const u=usuarioLogadoOrcFunc();
+    if(!sel) return;
+    if(u){
+      // Campo Vendedor SEMPRE acompanha o login atual: Iris=IRIS, Karol=KAROL, Verinha/Vera=VERINHA/VERA, Anderson=ANDERSON, Cris=CRISTIANE/CRIS.
+      // Isso impede que a tela abra presa em VERINHA ou que um usuário salve orçamento no nome de outro.
+      const nome=normaliza(u.nome||u.usuario);
+      if(![...sel.options].some(o=>normaliza(o.value||o.textContent)===nome)) sel.add(new Option(nome,nome));
+      sel.value=nome;
+      sel.disabled=true;
+    } else {
+      sel.value='';
+      sel.disabled=false;
+    }
+  }
+  function init(){ criarAba(); atualizarProdutos(); aplicarRestricaoVendedorTela(); window.baireFuncNovoOrcamento(); window.baireFuncRenderHistorico(); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else setTimeout(init,80);
 })();
 </script>
@@ -9669,7 +9326,7 @@ function salvarOrcamentoTopoSeguro(){
   const USERS_CLOUD_KEY='usuarios_sistema';
   const SESSION_KEY='baire_usuario_logado';
   const PAGE_LABELS={
-    estoque:'Estoque / NFs', vendas:'Registrar Venda', historico:'Histórico de Vendas', rastreio:'Rastreabilidade', importar:'Importar CSV', defeitos:'Defeitos', produtos:'Produtos', orcamento:'GESTÃO', 'orc-func':'COTAÇÃO VENDAS', cotacoes:'Cotações', aprovacoes:'Aprovações', auditoria:'Auditoria', usuarios:'Usuários'
+    estoque:'Estoque / NFs', vendas:'Registrar Venda', historico:'Histórico de Vendas', rastreio:'Rastreabilidade', importar:'Importar CSV', defeitos:'Defeitos', produtos:'Produtos', orcamento:'Orçamento Admin', 'orc-func':'Orçamento Vendedores', cotacoes:'Cotações', aprovacoes:'Aprovações', auditoria:'Auditoria', usuarios:'Usuários'
   };
   const DEFAULT_USERS=[
     {usuario:'iris',senha:'EUCREIOEMJESUS',nome:'IRIS',perfil:'ADMIN',abas:['estoque','vendas','historico','rastreio','importar','defeitos','produtos','orcamento','orc-func','cotacoes','aprovacoes','auditoria','usuarios']},
@@ -9773,7 +9430,7 @@ function salvarOrcamentoTopoSeguro(){
   function criarPaginaAprovacoes(){
     if(document.getElementById('page-aprovacoes')) return;
     const p=document.createElement('div'); p.id='page-aprovacoes'; p.className='page';
-    p.innerHTML=`<div class="card"><div class="card-header"><div><h2>✅ Aprovações de Orçamentos dos Vendedores</h2><div class="help">Tela para Iris, Karol ou Verinha aprovarem/reprovarem cotações enviadas pelos vendedores.</div></div><div class="search-wrap"><input type="text" id="aprovBusca" placeholder="Buscar cliente, vendedor, produto..." oninput="baireAprovRender()"><select id="aprovFiltro" onchange="baireAprovRender()"><option value="pendentes">Somente pendentes</option><option value="todos">Todos</option><option value="aprovados">Aprovados</option><option value="reprovados">Reprovados</option></select></div></div><div style="overflow-x:auto"><table><thead><tr><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="aprovBody"></tbody></table></div></div>`;
+    p.innerHTML=`<div class="card"><div class="card-header"><div><h2>✅ Aprovações de Orçamentos dos Vendedores</h2><div class="help">Tela para Iris, Karol ou Verinha aprovarem/reprovarem orçamentos enviados pelos vendedores.</div></div><div class="search-wrap"><input type="text" id="aprovBusca" placeholder="Buscar cliente, vendedor, produto..." oninput="baireAprovRender()"><select id="aprovFiltro" onchange="baireAprovRender()"><option value="pendentes">Somente pendentes</option><option value="todos">Todos</option><option value="aprovados">Aprovados</option><option value="reprovados">Reprovados</option></select></div></div><div style="overflow-x:auto"><table><thead><tr><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="aprovBody"></tbody></table></div></div>`;
     document.body.insertBefore(p, document.body.querySelector('#loginOverlay'));
   }
   window.baireUserLimparForm=function(){
@@ -10069,7 +9726,7 @@ function salvarOrcamentoTopoSeguro(){
 /* ============================================================
    BAIRE — PATCH SINCRONIZAÇÃO REAL (01/06)
    Corrige restauração/nuvem para módulos novos:
-   Cotações, COTAÇÃO VENDAS, Aprovações e Auditoria.
+   Cotações, Orçamento Vendedores, Aprovações e Auditoria.
    ============================================================ */
 (function(){
   const K_COT1='baire_cotacoes_fornecedores';
@@ -10123,7 +9780,7 @@ function salvarOrcamentoTopoSeguro(){
     await supaSet(K_OF, of);
     await supaSet(K_AUD_CLOUD, aud);
     await supaSet(K_USERS_CLOUD, users);
-    if(avisa) alert('✓ Cotações, COTAÇÃO VENDAS, Aprovações e Auditoria enviados para a nuvem.');
+    if(avisa) alert('✓ Cotações, Orçamento Vendedores, Aprovações e Auditoria enviados para a nuvem.');
     return true;
   }
   async function baixarModulosNovos(avisa=false){
@@ -10209,7 +9866,7 @@ function salvarOrcamentoTopoSeguro(){
     }catch(e){ if(typeof oldExport==='function') oldExport.apply(this, arguments); }
   };
 
-  // Patch restauração: restaura também Cotações, COTAÇÃO VENDAS, Aprovações, Auditoria e Usuários.
+  // Patch restauração: restaura também Cotações, Orçamento Vendedores, Aprovações, Auditoria e Usuários.
   window.importarDados=function(input){
     const file=input && input.files && input.files[0];
     if(!file) return;
@@ -10273,7 +9930,7 @@ function salvarOrcamentoTopoSeguro(){
         // Redesenha tudo
         ['populaFiltros','normalizarVendas','renderMetrics','renderEstoque','renderVendas','renderMetricasDefeitos','renderDefeitos','pmBuild','paramAtualizarAuto','orcRH','orcCalc','orcAtualizarNumeroTela','baireRenderHistoricoCotacoes','baireFuncRenderHistorico','baireAprovRender','baireAuditoriaRender','baireUserRender'].forEach(fn=>{ try{ if(typeof window[fn]==='function') window[fn](); else if(typeof eval(fn)==='function') eval(fn)(); }catch(e){} });
 
-        alert(`✓ Backup restaurado e enviado para a nuvem.\nCotações: ${cot.length}\nCOTAÇÕES VENDAS/Aprovações: ${of.length}\nAuditoria: ${aud.length}\nOrçamentos Admin: ${histOrc.length}`);
+        alert(`✓ Backup restaurado e enviado para a nuvem.\nCotações: ${cot.length}\nOrçamentos Vendedores/Aprovações: ${of.length}\nAuditoria: ${aud.length}\nOrçamentos Admin: ${histOrc.length}`);
         try{ input.value=''; }catch(e){}
       }catch(err){ alert('Erro ao restaurar: '+err.message); }
     };
@@ -10297,351 +9954,6 @@ function salvarOrcamentoTopoSeguro(){
   // Ao carregar online, tenta puxar módulos novos também.
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>baixarModulosNovos(false),1200));
   else setTimeout(()=>baixarModulosNovos(false),1200);
-})();
-</script>
-
-
-
-<script>
-/* ============================================================
-   AJUSTE 2026-06-04 — CONSULTA DE PREÇOS POR PRODUTO EM MATRIZ
-   - Consulta rápida para venda: busca por produto/SKU
-   - Linha: Data da cotação + Produto
-   - Colunas horizontais: fornecedores cotados
-   - Menor preço destacado em verde
-   - Mapa de Compra continua separado, abrindo em tela maior
-   ============================================================ */
-(function(){
-  function qs(id){ return document.getElementById(id); }
-  function esc(s){ return String(s ?? '').replace(/[&<>\"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[ch] || ch)); }
-  function normaliza(txt){ return String(txt||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
-  function fmtData(d){ if(!d) return '-'; const p=String(d).split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : d; }
-  function moeda(n){ n=Number(n)||0; return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
-  function numBR(v){
-    if(v===null || v===undefined) return 0;
-    if(typeof v==='number') return isFinite(v)?v:0;
-    let s=String(v).trim().replace(/R\$|\s/g,'');
-    if(!s) return 0;
-    if(s.includes(',') && s.includes('.')) s=s.replace(/\./g,'').replace(',', '.');
-    else s=s.replace(',', '.');
-    const n=Number(s); return isFinite(n)?n:0;
-  }
-  function cotacoes(){
-    try{ if(typeof window.baireCotacoes==='function') return window.baireCotacoes() || []; }catch(e){}
-    try{ return JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores')||localStorage.getItem('cotacoesFornecedor')||'[]') || []; }catch(e){ return []; }
-  }
-  function valoresItem(item){
-    const vals=[];
-    Object.entries(item?.valores||{}).forEach(([f,v])=>{ const n=numBR(v); if(n>0) vals.push({fornecedor:normaliza(f),valor:n}); });
-    return vals;
-  }
-  function nomeCotacao(c){
-    const lista=cotacoes().slice().sort((a,b)=>String(a.data||'').localeCompare(String(b.data||'')) || String(a.id).localeCompare(String(b.id)));
-    const idx=lista.findIndex(x=>String(x.id)===String(c.id));
-    return 'COTAÇÃO '+String((idx>=0?idx+1:1)).padStart(3,'0');
-  }
-  function instalarLabels(){
-    const card = qs('cot-analise-body')?.closest('.card');
-    if(!card) return;
-    const h2 = card.querySelector('.card-header h2');
-    if(h2) h2.textContent = '🔎 Consulta de Preços e Mapa de Compra';
-    const help = card.querySelector('.card-header .help');
-    if(help) help.textContent = 'Consulta rápida por produto para atender cliente. O Mapa de Compra abre separado para decisão de compra.';
-    const sel = qs('cot-analise-id');
-    const prod = qs('cot-analise-prod');
-    if(sel){
-      const lab = sel.closest('.form-group')?.querySelector('label');
-      if(lab) lab.textContent = 'Mapa de compra — escolher cotação';
-    }
-    if(prod){
-      const lab = prod.closest('.form-group')?.querySelector('label');
-      if(lab) lab.textContent = 'Consulta rápida por produto/SKU';
-      prod.placeholder = 'Digite o toner para consultar preço. Ex.: 285A, TN660, DR1060...';
-    }
-    const table = qs('cot-analise-body')?.closest('table');
-    if(table){
-      const thead = table.querySelector('thead');
-      if(thead) thead.innerHTML = '<tr><th>Data da cotação</th><th>Produto pesquisado</th><th colspan="20">Fornecedores cotados na horizontal</th></tr>';
-    }
-  }
-  let renderOriginal=null;
-  function renderConsultaPrecos(){
-    instalarLabels();
-    const tb=qs('cot-analise-body');
-    const resumo=qs('cot-analise-resumo');
-    if(!tb) return;
-    const busca=normaliza(qs('cot-analise-prod')?.value||'');
-    const todas=cotacoes().slice().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')) || String(b.id).localeCompare(String(a.id)));
-    if(!busca){
-      tb.innerHTML='<tr><td colspan="12" class="empty">Digite um produto para consultar rapidamente os valores cotados por fornecedor.</td></tr>';
-      if(resumo) resumo.textContent='Consulta rápida: digite o produto para ver data, modelo e fornecedores na horizontal.';
-      return;
-    }
-    const grupos=[];
-    const fornecedoresSet=new Set();
-    todas.forEach(c=>{
-      (c.itens||[]).forEach(item=>{
-        const prod=normaliza(item.produto||'');
-        if(!prod || !prod.includes(busca)) return;
-        const vals=valoresItem(item);
-        if(!vals.length) return;
-        const map={};
-        vals.forEach(v=>{ map[v.fornecedor]=v.valor; fornecedoresSet.add(v.fornecedor); });
-        grupos.push({cot:c, data:c.data||'', produto:prod, valores:map});
-      });
-    });
-    if(!grupos.length){
-      tb.innerHTML='<tr><td colspan="12" class="empty">Nenhuma cotação encontrada para este produto.</td></tr>';
-      if(resumo) resumo.textContent='Nenhum resultado encontrado para '+busca+'.';
-      return;
-    }
-    const fornecedores=[...fornecedoresSet].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-    const table=tb.closest('table');
-    const thead=table?.querySelector('thead');
-    if(thead){
-      thead.innerHTML='<tr><th style="min-width:120px">Data da cotação</th><th style="min-width:220px">Produto pesquisado</th>'+fornecedores.map(f=>`<th style="text-align:right;min-width:130px">${esc(f)}</th>`).join('')+'<th style="min-width:120px">Mapa</th></tr>';
-    }
-    tb.innerHTML=grupos.map(g=>{
-      const vals=Object.values(g.valores).filter(v=>Number(v)>0);
-      const menor=vals.length?Math.min(...vals):0;
-      return '<tr>'+
-        `<td>${fmtData(g.data)}</td>`+
-        `<td><strong>${esc(g.produto)}</strong><div class="help">${esc(nomeCotacao(g.cot))}</div></td>`+
-        fornecedores.map(f=>{
-          const v=Number(g.valores[f]||0);
-          if(!v) return '<td style="text-align:center;color:#94a3b8;background:#f8fafc">—</td>';
-          const cls = (v===menor) ? 'cot-melhor' : '';
-          return `<td class="${cls}" style="text-align:right;font-weight:800">${moeda(v)}</td>`;
-        }).join('')+
-        `<td><button class="btn-secondary btn-sm" onclick="baireAbrirMapaCompraCotacao('${esc(g.cot.id)}')">Abrir mapa</button></td>`+
-        '</tr>';
-    }).join('');
-    if(resumo){
-      resumo.textContent = `${grupos.length} cotação(ões) encontrada(s) para ${busca}. Menor valor de cada linha destacado em verde.`;
-    }
-  }
-  window.baireAbrirMapaCompraCotacao=function(id){
-    const prod=qs('cot-analise-prod');
-    const antigoBusca = prod ? prod.value : '';
-    const sel=qs('cot-analise-id');
-    if(sel) sel.value=String(id||'');
-    // Abre mapa completo da cotação, sem filtrar só o produto pesquisado.
-    if(prod) prod.value='';
-    if(typeof renderOriginal==='function') renderOriginal();
-    if(typeof window.baireToggleMapaCompraTelaCheia==='function') window.baireToggleMapaCompraTelaCheia(true);
-    if(prod) prod.value=antigoBusca;
-    setTimeout(renderConsultaPrecos, 50);
-  };
-  function instalarOverride(){
-    if(window.__baireConsultaPrecosMatrizInstalada) return;
-    if(typeof window.baireRenderPainelCompraCotacoes !== 'function') return;
-    renderOriginal = window.baireRenderPainelCompraCotacoes;
-    window.baireRenderPainelCompraCotacoes=function(){
-      try{ renderOriginal(); }catch(e){ console.warn(e); }
-      renderConsultaPrecos();
-    };
-    window.__baireConsultaPrecosMatrizInstalada=true;
-    setTimeout(()=>{ try{ window.baireRenderPainelCompraCotacoes(); }catch(e){} }, 150);
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=>setTimeout(instalarOverride,700));
-  else setTimeout(instalarOverride,700);
-})();
-</script>
-
-<script>
-/* AJUSTE 2026-06-04: Calculadora Comercial lateral na Consulta de Preços */
-/* AJUSTE 2026-06-04: Calculadora agora usa parâmetros da GESTÃO (70/110 por venda e 25/37 por toner). */
-(function(){
-  function qs(id){return document.getElementById(id);}
-  function numBR(v){
-    if(v===null || v===undefined) return 0;
-    if(typeof v==='number') return isFinite(v)?v:0;
-    let s=String(v).replace(/R\$|\s/g,'').trim();
-    if(!s) return 0;
-    if(s.includes(',') && s.includes('.')) s=s.replace(/\./g,'').replace(',', '.');
-    else s=s.replace(',', '.');
-    const n=Number(s); return isFinite(n)?n:0;
-  }
-  function moeda(v){return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});}
-  function setVal(id,v){const el=qs(id); if(el) el.value = (Number(v)||0).toFixed(2).replace('.',',');}
-  function getVal(id){return numBR(qs(id)?.value||0);}
-  function calc(){
-    const custo=getVal('baire-calc-custo');
-    const qtd=Math.max(1, getVal('baire-calc-qtd') || 1);
-    const venda=getVal('baire-calc-venda');
-    const vendaTotal=venda*qtd;
-    const custoProduto=custo*qtd;
-
-    // Mesma composição da tela GESTÃO/Resumo do Orçamento:
-    // custo produto + NF sobre a venda + boleto + entrega.
-    const pnf=numBR(qs('oa-pnf')?.value || 7);
-    const bol=numBR(qs('oa-bol')?.value || 1.99);
-    const ent=numBR(qs('oa-ent')?.value || 14);
-    const nfValor=vendaTotal*(pnf/100);
-    const custoTotal=custoProduto+nfValor+bol+ent;
-    const lucroComNF=vendaTotal-custoTotal;
-    const lucroSemNF=vendaTotal-(custoProduto+bol+ent);
-    const lucroToner=qtd>0?lucroComNF/qtd:0;
-    const margem=vendaTotal>0?(lucroComNF/vendaTotal*100):0;
-
-    const par={lucroVendaMin:70,lucroVendaIdeal:110,lucroTonerMin:25,lucroTonerIdeal:37};
-    const fixoUnit=(bol+ent)/(qtd||1);
-    const denNF=1-(pnf/100);
-    const lucroUnitMin=Math.max(par.lucroTonerMin, par.lucroVendaMin/(qtd||1));
-    const lucroUnitIdeal=Math.max(par.lucroTonerIdeal, par.lucroVendaIdeal/(qtd||1));
-    const minUnit=(custo>0 && denNF>0)?((custo+fixoUnit+lucroUnitMin)/denNF):0;
-    const idealUnit=(custo>0 && denNF>0)?((custo+fixoUnit+lucroUnitIdeal)/denNF):0;
-
-    let status='AGUARDANDO'; let cls='baire-calc-status-wait'; let motivo='Digite custo, quantidade e venda.';
-    if(custo>0 && venda>0){
-      const passaVendaMin = lucroComNF >= par.lucroVendaMin;
-      const passaVendaIdeal = lucroComNF >= par.lucroVendaIdeal;
-      const passaTonerMin = lucroToner >= par.lucroTonerMin;
-      const passaTonerIdeal = lucroToner >= par.lucroTonerIdeal;
-      if(passaVendaIdeal){
-        status='EXCELENTE'; cls='baire-calc-status-excelente'; motivo='Acima do ideal por venda de R$ 110,00.';
-      } else if(passaVendaMin){
-        status='APROVADO'; cls='baire-calc-status-aprovado'; motivo='Lucro por venda acima do mínimo de R$ 70,00.';
-      } else if(passaTonerIdeal){
-        status='APROVADO'; cls='baire-calc-status-aprovado'; motivo='Venda pequena, mas saudável por toner: acima de R$ 37,00.';
-      } else if(passaTonerMin){
-        status='ATENÇÃO'; cls='baire-calc-status-wait'; motivo='Lucro por venda baixo; mínimo/ideal por toner está na faixa de atenção.';
-      } else {
-        status='RISCO'; cls='baire-calc-status-reprovado';
-        let partes=[];
-        if(!passaVendaMin) partes.push('lucro por venda abaixo de R$ 70,00');
-        if(!passaTonerMin) partes.push('sobra por toner abaixo de R$ 25,00');
-        motivo='Revisar ou reprovar: '+partes.join(' e ')+'.';
-      }
-    }
-    const set=(id,txt)=>{const el=qs(id); if(el) el.textContent=txt;};
-    set('baire-calc-venda-total', moeda(vendaTotal));
-    set('baire-calc-custo-total', moeda(custoTotal));
-    set('baire-calc-lucro', moeda(lucroComNF));
-    set('baire-calc-lucro-sem-nf', moeda(lucroSemNF));
-    set('baire-calc-margem', (isFinite(margem)?margem:0).toFixed(1).replace('.',',')+'%');
-    set('baire-calc-lucro-toner', moeda(lucroToner));
-    set('baire-calc-minimo', moeda(minUnit));
-    set('baire-calc-ideal', moeda(idealUnit));
-    set('baire-calc-nf', moeda(nfValor));
-    set('baire-calc-boleto', moeda(bol));
-    set('baire-calc-entrega', moeda(ent));
-    set('baire-calc-produto-custo-total', moeda(custoProduto));
-    set('baire-calc-status', status);
-    set('baire-calc-motivo', motivo+' Sobra por venda: '+moeda(lucroComNF)+' | Sobra por toner: '+moeda(lucroToner));
-    const st=qs('baire-calc-status'); if(st){ st.className='baire-calc-status '+cls; }
-    const box=qs('baire-calc-comercial');
-    if(box){
-      box.classList.toggle('baire-calc-negativo', status==='RISCO');
-      box.classList.toggle('baire-calc-ok', status==='APROVADO' || status==='EXCELENTE');
-    }
-  }
-  window.baireCalcComercialAtualizar=calc;
-  window.baireCalcComercialSugestao=function(tipo){
-    const custo=getVal('baire-calc-custo');
-    const qtd=Math.max(1, getVal('baire-calc-qtd') || 1);
-    if(!custo) return;
-    const par={lucroVendaMin:70,lucroVendaIdeal:110,lucroTonerMin:25,lucroTonerIdeal:37};
-    const pnf=numBR(qs('oa-pnf')?.value || 7);
-    const bol=numBR(qs('oa-bol')?.value || 1.99);
-    const ent=numBR(qs('oa-ent')?.value || 14);
-    const fixoUnit=(bol+ent)/(qtd||1);
-    const denNF=1-(pnf/100);
-    const lucroUnit = tipo==='ideal' ? Math.max(par.lucroTonerIdeal, par.lucroVendaIdeal/(qtd||1)) : Math.max(par.lucroTonerMin, par.lucroVendaMin/(qtd||1));
-    setVal('baire-calc-venda', denNF>0 ? (custo+fixoUnit+lucroUnit)/denNF : 0);
-    calc();
-  };
-  window.baireCalcComercialLimpar=function(){
-    ['baire-calc-custo','baire-calc-qtd','baire-calc-venda'].forEach(id=>{const el=qs(id); if(el) el.value='';});
-    const prod=qs('baire-calc-produto'); if(prod) prod.textContent='Clique em um valor da consulta';
-    calc();
-  };
-  window.baireCalcComercialSetCusto=function(valor, produto){
-    setVal('baire-calc-custo', valor);
-    const p=qs('baire-calc-produto'); if(p) p.textContent=produto ? String(produto).toUpperCase() : 'Custo carregado da consulta';
-    const q=qs('baire-calc-qtd'); if(q && !q.value) q.value='1';
-    const v=qs('baire-calc-venda'); if(v && !v.value) window.baireCalcComercialSugestao('minimo');
-    calc();
-  };
-  function instalar(){
-    const body=qs('cot-analise-body'); if(!body || qs('baire-calc-comercial')) return;
-    const card=body.closest('.card'); if(!card) return;
-    const content=body.closest('.card')?.querySelector('.card-header')?.nextElementSibling;
-    if(!content) return;
-    content.classList.add('baire-consulta-com-calculadora');
-    const calcBox=document.createElement('div');
-    calcBox.id='baire-calc-comercial';
-    calcBox.innerHTML=`
-      <div class="baire-calc-head">
-        <div>
-          <div class="baire-calc-title">🧮 Calculadora Comercial</div>
-          <div class="baire-calc-sub" id="baire-calc-produto">Clique em um valor da consulta</div>
-        </div>
-        <button class="baire-calc-clear" onclick="baireCalcComercialLimpar()">limpar</button>
-      </div>
-      <div class="baire-calc-screen">
-        <div class="baire-calc-row"><span>Venda total</span><strong id="baire-calc-venda-total">R$ 0,00</strong></div>
-        <div class="baire-calc-row"><span>Custo total</span><strong id="baire-calc-custo-total">R$ 0,00</strong></div>
-        <div class="baire-calc-row"><span>Lucro bruto c/ NF</span><strong id="baire-calc-lucro">R$ 0,00</strong></div>
-        <div class="baire-calc-row mini"><span>Lucro bruto s/ NF</span><strong id="baire-calc-lucro-sem-nf">R$ 0,00</strong></div>
-        <div class="baire-calc-row mini"><span>Margem operacional</span><strong id="baire-calc-margem">0,0%</strong></div>
-        <div class="baire-calc-row mini"><span>Por toner</span><strong id="baire-calc-lucro-toner">R$ 0,00</strong></div>
-      </div>
-      <div class="baire-calc-fields">
-        <label>Custo unitário<input id="baire-calc-custo" type="text" inputmode="decimal" placeholder="0,00" oninput="baireCalcComercialAtualizar()"></label>
-        <label>Quantidade<input id="baire-calc-qtd" type="number" min="0" step="1" placeholder="1" oninput="baireCalcComercialAtualizar()"></label>
-        <label>Preço de venda<input id="baire-calc-venda" type="text" inputmode="decimal" placeholder="0,00" oninput="baireCalcComercialAtualizar()"></label>
-      </div>
-      <div class="baire-calc-statusbox">
-        <div class="baire-calc-status baire-calc-status-wait" id="baire-calc-status">AGUARDANDO</div>
-        <div class="baire-calc-motivo" id="baire-calc-motivo">Digite custo, quantidade e venda.</div>
-      </div>
-      <div class="baire-calc-sugestoes">
-        <button onclick="baireCalcComercialSugestao('minimo')"><span>Mínimo Gestão</span><strong id="baire-calc-minimo">R$ 0,00</strong></button>
-        <button onclick="baireCalcComercialSugestao('ideal')"><span>Ideal Gestão</span><strong id="baire-calc-ideal">R$ 0,00</strong></button>
-      </div>
-      <div class="baire-calc-resumo">
-        <div><span>Custo produto</span><strong id="baire-calc-produto-custo-total">R$ 0,00</strong></div>
-        <div><span>+ NF</span><strong id="baire-calc-nf">R$ 0,00</strong></div>
-        <div><span>+ Boleto</span><strong id="baire-calc-boleto">R$ 0,00</strong></div>
-        <div><span>+ Entrega</span><strong id="baire-calc-entrega">R$ 0,00</strong></div>
-        <div><span>Regra</span><strong>R$70/110 • R$25/37</strong></div>
-      </div>
-      <div class="baire-calc-help">Dica: clique em qualquer preço da Consulta de Preços para preencher o custo. A aprovação usa os mesmos parâmetros da aba GESTÃO.</div>
-    `;
-    content.insertBefore(calcBox, content.firstChild);
-    calc();
-  }
-  function extrairValor(txt){
-    const m=String(txt||'').match(/R\$\s*([0-9\.]+,[0-9]{2})/i);
-    return m ? numBR(m[1]) : 0;
-  }
-  document.addEventListener('click', function(ev){
-    const tb=qs('cot-analise-body'); if(!tb) return;
-    const td=ev.target.closest && ev.target.closest('#cot-analise-body td');
-    if(!td) return;
-    const val=extrairValor(td.textContent||'');
-    if(!val) return;
-    const tr=td.closest('tr');
-    const prod=tr?.children?.[1]?.querySelector('strong')?.textContent || tr?.children?.[1]?.textContent || '';
-    window.baireCalcComercialSetCusto(val, prod);
-  });
-  const css=document.createElement('style');
-  css.textContent=`
-    .baire-consulta-com-calculadora{position:relative;}
-    #baire-calc-comercial{float:right;width:310px;margin:0 0 14px 18px;background:#0b1628;color:#fff;border-radius:18px;padding:14px;box-shadow:0 12px 30px rgba(15,23,42,.22);position:sticky;top:86px;z-index:30;border:1px solid rgba(255,255,255,.12)}
-    .baire-calc-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:10px}.baire-calc-title{font-weight:900;font-size:15px;letter-spacing:.2px}.baire-calc-sub{font-size:11px;color:#a9b7cf;margin-top:3px;max-width:210px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.baire-calc-clear{background:#1f2c44;color:#dbeafe;border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:5px 9px;font-size:11px;cursor:pointer}.baire-calc-screen{background:linear-gradient(180deg,#e8fff4,#d7fbe8);color:#06281a;border-radius:14px;padding:12px;margin-bottom:12px;border:1px solid rgba(16,185,129,.35);box-shadow:inset 0 1px 1px rgba(255,255,255,.7)}.baire-calc-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:3px 0}.baire-calc-row span{font-size:11px;color:#166534}.baire-calc-row strong{font-size:20px;font-weight:900}.baire-calc-row.mini strong{font-size:15px}.baire-calc-fields{display:grid;grid-template-columns:1fr 90px;gap:8px}.baire-calc-fields label{font-size:11px;color:#cbd5e1;font-weight:700}.baire-calc-fields label:nth-child(3){grid-column:1 / -1}.baire-calc-fields input{width:100%;margin-top:4px;background:#111f35;color:#fff;border:1px solid #334155;border-radius:11px;padding:10px 11px;font-size:17px;font-weight:800;text-align:right;outline:none}.baire-calc-fields input:focus{border-color:#38bdf8;box-shadow:0 0 0 2px rgba(56,189,248,.22)}.baire-calc-statusbox{margin-top:10px;background:#111f35;border:1px solid #334155;border-radius:13px;padding:10px}.baire-calc-status{display:inline-flex;border-radius:999px;padding:5px 10px;font-size:11px;font-weight:900;letter-spacing:.3px}.baire-calc-status-wait{background:#e5e7eb;color:#374151}.baire-calc-status-excelente{background:#dcfce7;color:#166534}.baire-calc-status-aprovado{background:#dbeafe;color:#1e40af}.baire-calc-status-reprovado{background:#fee2e2;color:#991b1b}.baire-calc-motivo{font-size:10px;color:#cbd5e1;margin-top:7px;line-height:1.3}.baire-calc-sugestoes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.baire-calc-sugestoes button{background:#1d4ed8;color:#fff;border:0;border-radius:12px;padding:9px 8px;font-size:11px;font-weight:800;cursor:pointer;text-align:left}.baire-calc-sugestoes button:hover{background:#2563eb}.baire-calc-sugestoes span{display:block;font-size:10px;color:#bfdbfe;margin-bottom:3px}.baire-calc-sugestoes strong{font-size:13px;color:#fff}.baire-calc-resumo{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.baire-calc-resumo div{background:#111f35;border:1px solid #334155;border-radius:12px;padding:9px}.baire-calc-resumo span{display:block;color:#94a3b8;font-size:10px;margin-bottom:3px}.baire-calc-resumo strong{font-size:13px;color:#fff}.baire-calc-help{font-size:10px;color:#94a3b8;margin-top:10px;line-height:1.35}.baire-calc-negativo .baire-calc-screen{background:#fee2e2;color:#450a0a;border-color:#fca5a5}.baire-calc-negativo .baire-calc-screen span{color:#991b1b}#cot-analise-body td{cursor:default}#cot-analise-body td:has(strong),#cot-analise-body td.cot-melhor{cursor:pointer}@media(max-width:1050px){#baire-calc-comercial{float:none;width:100%;position:relative;top:auto;margin:0 0 14px 0}.baire-calc-fields{grid-template-columns:1fr 1fr}.baire-calc-fields label:nth-child(3){grid-column:auto}}`;
-  document.head.appendChild(css);
-  const originalRender=window.baireRenderPainelCompraCotacoes;
-  if(typeof originalRender==='function'){
-    window.baireRenderPainelCompraCotacoes=function(){
-      const r=originalRender.apply(this,arguments);
-      setTimeout(instalar,0);
-      return r;
-    };
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>setTimeout(instalar,900));
-  else setTimeout(instalar,900);
 })();
 </script>
 
