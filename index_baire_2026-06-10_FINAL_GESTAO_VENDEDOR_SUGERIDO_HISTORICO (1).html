@@ -4,7 +4,6 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Baire Controle Estoque 2026</title>
-<!-- AJUSTE 2026-06-10: Histórico de Orçamentos/Gestão em ordem decrescente (mais recente no topo) -->
 <!-- AJUSTE 2026-06-04: Consulta de Preços por produto em matriz + Mapa de Compra separado -->
 <!-- AJUSTE 2026-06-04: mapa de compra em tela ampliada, cabeçalho fixo, qtd/valor editáveis e resumo escolhido -->
 <!-- AJUSTE 2026-06-04: mapa de compra por cotação com fornecedores horizontais, menor preço verde e seleção de compra -->
@@ -8094,18 +8093,7 @@ function orcRH(){
   if(!f.length){if(ee)ee.style.display='block';if(ew)ew.style.display='none';return;}
   if(ee)ee.style.display='none';if(ew)ew.style.display='block';
   const tb=oEl('ohist-body');if(!tb)return;tb.innerHTML='';
-  // Histórico de Orçamentos/Gestão: sempre mais recente em cima.
-  // Ordena por data/hora quando existir; se não houver, usa número/id do orçamento em ordem decrescente.
-  const ordenado = f.slice().sort((a,b)=>{
-    const ha = a.h || {}, hb = b.h || {};
-    const ta = new Date(ha.dataHora || ha.atualizadoEm || ha.criadoEm || ha.data || 0).getTime() || 0;
-    const tb = new Date(hb.dataHora || hb.atualizadoEm || hb.criadoEm || hb.data || 0).getTime() || 0;
-    if (tb !== ta) return tb - ta;
-    const na = Number(ha.num || ha.id || a.idx || 0) || 0;
-    const nb = Number(hb.num || hb.id || b.idx || 0) || 0;
-    return nb - na;
-  });
-  ordenado.forEach(obj=>{
+  f.slice().reverse().forEach(obj=>{
     const h=obj.h||{}, realIdx=obj.idx;
     const score = Math.max(0, Math.min(3, parseInt(h.score,10)||0));
     const b=[{bg:'#fee2e2',c:'#991b1b',t:'🔒 0/3'},{bg:'#fef3c7',c:'#92400e',t:'⚠️ 1/3'},{bg:'#d1fae5',c:'#065f46',t:'✅ 2/3'},{bg:'#dcfce7',c:'#166534',t:'✅ 3/3'}][score];
@@ -8703,13 +8691,33 @@ function salvarOrcamentoTopoSeguro(){
     Object.entries(item?.valores||{}).forEach(([f,v])=>{ const n=numBR(v); if(n>0) vals.push({fornecedor:normaliza(f),valor:n}); });
     return vals;
   }
+  function baireChaveProdutoCotacao(txt){
+    return normaliza(txt).replace(/[^A-Z0-9]/g,'');
+  }
+  function baireProdutoCotacaoCombina(a,b){
+    const aa=baireChaveProdutoCotacao(a), bb=baireChaveProdutoCotacao(b);
+    if(!aa || !bb) return false;
+    if(aa===bb) return true;
+    return aa.includes(bb) || bb.includes(aa);
+  }
   function maiorValorCotado(produto){
-    const alvo=normaliza(produto); let melhor=null;
+    const alvo=normaliza(produto); if(!alvo) return null;
+    const registros=[];
     cotacoes().forEach(c=>{
+      const dias = (typeof diasEntre==='function') ? diasEntre(c.data) : 0;
+      if(dias<0 || dias>7) return;
       (c.itens||[]).forEach(item=>{
-        if(normaliza(item.produto)!==alvo) return;
-        valoresItem(item).forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor, fornecedor:v.fornecedor, data:c.data||'', cotacaoId:c.id||''}; });
+        if(!baireProdutoCotacaoCombina(item.produto, alvo)) return;
+        const vals=valoresItem(item);
+        if(vals.length) registros.push({data:c.data||'', id:c.id||'', vals});
       });
+    });
+    if(!registros.length) return null;
+    registros.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(b.id).localeCompare(String(a.id)));
+    const dataMaisRecente=registros[0].data;
+    let melhor=null;
+    registros.filter(r=>r.data===dataMaisRecente).forEach(r=>{
+      r.vals.forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor, fornecedor:v.fornecedor, data:r.data, cotacaoId:r.id}; });
     });
     return melhor;
   }
@@ -8794,6 +8802,8 @@ function salvarOrcamentoTopoSeguro(){
               <div><span>🧾 Mapa de compra da cotação</span><div class="cot-mapa-ajuda" id="cot-mapa-status">Selecione uma cotação para abrir o mapa por fornecedor.</div></div>
               <div class="cot-mapa-actions">
                 <button class="btn-secondary" onclick="baireMarcarMenoresMapaCompra()">✅ Marcar menores</button>
+                <button class="btn-primary" onclick="baireAdicionarProdutoNaCotacaoAberta()">➕ Adicionar produto nesta cotação</button>
+                <button class="btn-green" onclick="baireSalvarAlteracoesMapaCotacao()">💾 Salvar custos/quantidades</button>
                 <button class="btn-primary" onclick="baireToggleMapaCompraTelaCheia(true)">🔎 Abrir mapa</button>
                 <button class="btn-secondary cot-btn-fechar" onclick="baireToggleMapaCompraTelaCheia(false)">Fechar</button>
               </div>
@@ -9330,39 +9340,26 @@ function salvarOrcamentoTopoSeguro(){
     return vals;
   }
   function cotacaoVigente(produto){
-    // Regra unificada com Gestão: cotação mais recente válida (até 7 dias)
-    // e, dentro dessa data, maior valor cotado. Compatibiliza 285, 285A, 435 e 436.
     const alvo=normaliza(produto); if(!alvo) return null;
-    const soAlnum=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-    const matchProduto=(a,b)=>{
-      const A=soAlnum(a), B=soAlnum(b);
-      if(!A||!B) return false;
-      if(A===B || A.includes(B) || B.includes(A)) return true;
-      const fam=['285','285A','435','436'];
-      return fam.some(x=>A.includes(x)) && fam.some(x=>B.includes(x));
-    };
-    const tempoCot=c=>{
-      const t=new Date(c?.atualizadoEm||c?.criadoEm||c?.data||0).getTime();
-      if(Number.isFinite(t)&&t) return t;
-      const id=Number(c?.id||0); return Number.isFinite(id)?id:0;
-    };
+    function chave(txt){ return normaliza(txt).replace(/[^A-Z0-9]/g,''); }
+    function combina(a,b){ const aa=chave(a), bb=chave(b); return !!aa && !!bb && (aa===bb || aa.includes(bb) || bb.includes(aa)); }
     const registros=[];
     cotacoes().forEach(c=>{
       const dias=diasEntre(c.data);
       if(dias<0 || dias>7) return;
       (c.itens||[]).forEach(item=>{
-        if(!matchProduto(item.produto, produto)) return;
+        if(!combina(item.produto, alvo)) return;
         const vals=valoresItem(item);
         if(!vals.length) return;
-        registros.push({data:c.data||'', id:c.id||'', vals, item, cotacao:c, tempo:tempoCot(c)});
+        registros.push({data:c.data||'', id:c.id||'', vals});
       });
     });
     if(!registros.length) return null;
-    registros.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || (b.tempo-a.tempo) || String(b.id).localeCompare(String(a.id)));
+    registros.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(b.id).localeCompare(String(a.id)));
     const dataMaisRecente=registros[0].data;
     let melhor=null;
     registros.filter(r=>r.data===dataMaisRecente).forEach(r=>{
-      r.vals.forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor, fornecedor:v.fornecedor, data:r.data, cotacaoId:r.id, produto:r.item?.produto||produto}; });
+      r.vals.forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor, fornecedor:v.fornecedor, data:r.data, cotacaoId:r.id}; });
     });
     return melhor;
   }
@@ -10796,717 +10793,119 @@ function salvarOrcamentoTopoSeguro(){
 </script>
 
 
-<script id="baire-ajuste-2026-06-10-cotacoes-edicao-custo-ordem">
-/*
-  AJUSTE 2026-06-10
-  1) Histórico de cotações e histórico de Gestão/Orçamentos: mais recente em cima.
-  2) Gestão e Cotação Vendas usam a mesma cotação vigente: data mais recente em até 7 dias; dentro da data, maior valor.
-  3) Botão de adicionar produto fica dentro da cotação escolhida no mapa/consulta.
-  4) Edição de custo no mapa/consulta salva dentro da cotação original.
+<script>
+/* AJUSTE 2026-06-10: reforço final sem mexer no JSON
+   - histórico de orçamentos mais recente no topo
+   - botão dentro da cotação selecionada para adicionar produto
+   - salvar custo/quantidade editados no mapa de compra
+   - Gestão e Vendedor usam mesma cotação vigente por equivalência de SKU (285 = 285A / 435 / 436)
 */
 (function(){
-  const KEY1 = 'baire_cotacoes_fornecedores';
-  const KEY2 = 'cotacoesFornecedor';
-
-  function qs(id){ return document.getElementById(id); }
-  function normaliza(txt){ return String(txt||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
-  function esc(s){ return String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
-  function numBR(v){
-    if(v===null || v===undefined) return 0;
-    if(typeof v==='number') return isFinite(v)?v:0;
-    let s=String(v).trim().replace(/R\$|\s/g,'');
-    if(!s) return 0;
-    if(s.includes(',') && s.includes('.')) s=s.replace(/\./g,'').replace(',', '.');
-    else s=s.replace(',', '.');
-    const n=Number(s);
-    return isFinite(n)?n:0;
-  }
-  function moeda(n){ return (Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
-  function hojeISO(){
-    try { if(typeof baireHojeLocalISO === 'function') return baireHojeLocalISO(); } catch(e){}
-    const d = new Date();
-    const p = new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d).reduce((a,x)=>{a[x.type]=x.value;return a;},{});
-    return `${p.year}-${p.month}-${p.day}`;
-  }
-  function fmtData(d){ if(!d) return '-'; const p=String(d).split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : d; }
-  function cotacoes(){
-    try{
-      let a = JSON.parse(localStorage.getItem(KEY1) || 'null');
-      if(!Array.isArray(a)) a = JSON.parse(localStorage.getItem(KEY2) || '[]');
-      return Array.isArray(a) ? a : [];
-    }catch(e){ return []; }
-  }
-  function salvarCotacoes(arr){
-    const safe = ordenarCotacoes(Array.isArray(arr)?arr:[]);
-    localStorage.setItem(KEY1, JSON.stringify(safe));
-    localStorage.setItem(KEY2, JSON.stringify(safe));
-    try { if(window.location.protocol !== 'file:' && typeof supaSet === 'function') supaSet('cotacoesFornecedor', safe).catch(()=>{}); } catch(e){}
-    try { if(window.location.protocol !== 'file:' && typeof salvarNuvem === 'function') setTimeout(()=>salvarNuvem().catch(()=>{}), 200); } catch(e){}
-  }
-  function valorTempo(c){
-    const a = new Date(c?.atualizadoEm || c?.criadoEm || c?.data || 0).getTime();
-    if(Number.isFinite(a) && a) return a;
-    const b = Number(c?.id || 0);
-    return Number.isFinite(b) ? b : 0;
-  }
-  function ordenarCotacoes(arr){
-    return (Array.isArray(arr)?arr:[]).slice().sort((a,b)=>{
-      const d = String(b?.data||'').localeCompare(String(a?.data||''));
-      if(d) return d;
-      return valorTempo(b)-valorTempo(a);
-    });
-  }
-  function valoresItem(item){
-    const vals=[];
-    Object.entries(item?.valores||{}).forEach(([f,v])=>{ const n=numBR(v); if(n>0) vals.push({fornecedor:normaliza(f),valor:n}); });
-    return vals;
-  }
-  function diasEntre(data){
-    if(!data) return 9999;
-    const h = new Date(hojeISO()+'T00:00:00');
-    const d = new Date(String(data).slice(0,10)+'T00:00:00');
-    if(!Number.isFinite(d.getTime())) return 9999;
-    return Math.floor((h-d)/86400000);
-  }
+  function qs(id){return document.getElementById(id);}
+  function normaliza(txt){return String(txt||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
+  function chaveProd(txt){return normaliza(txt).replace(/[^A-Z0-9]/g,'');}
+  function prodCombina(a,b){const aa=chaveProd(a), bb=chaveProd(b); return !!aa && !!bb && (aa===bb || aa.includes(bb) || bb.includes(aa));}
+  function numBR(v){ if(v===null||v===undefined) return 0; if(typeof v==='number') return isFinite(v)?v:0; let s=String(v).trim().replace(/R\$|\s/g,''); if(!s) return 0; if(s.includes(',')&&s.includes('.')) s=s.replace(/\./g,'').replace(',', '.'); else s=s.replace(',', '.'); const n=Number(s); return isFinite(n)?n:0; }
+  function moeda(n){ n=Number(n)||0; return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+  function fmtData(d){ if(!d)return '-'; const p=String(d).split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d; }
+  function diasEntre(iso){ if(!iso) return 9999; const a=new Date(String(iso).slice(0,10)+'T00:00:00'); const b=new Date(); b.setHours(0,0,0,0); return Math.floor((b-a)/(1000*60*60*24)); }
+  function cotacoes(){ try{ if(typeof window.baireCotacoes==='function') return window.baireCotacoes(); }catch(e){} try{return JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores')||localStorage.getItem('cotacoesFornecedor')||'[]')||[];}catch(e){return [];} }
+  function salvarCotacoes(arr){ try{ localStorage.setItem('baire_cotacoes_fornecedores',JSON.stringify(arr)); localStorage.setItem('cotacoesFornecedor',JSON.stringify(arr)); }catch(e){} }
+  function valoresItem(item){ const vals=[]; Object.entries((item&&item.valores)||{}).forEach(([f,v])=>{ const n=numBR(v); if(n>0) vals.push({fornecedor:normaliza(f),valor:n}); }); return vals; }
   function cotacaoVigenteUnica(produto){
-    const alvo=normaliza(produto);
-    if(!alvo) return null;
+    const alvo=normaliza(produto); if(!alvo) return null;
     const regs=[];
     cotacoes().forEach(c=>{
-      const dias=diasEntre(c.data);
-      if(dias<0 || dias>7) return;
+      const dias=diasEntre(c.data); if(dias<0 || dias>7) return;
       (c.itens||[]).forEach(item=>{
-        if(normaliza(item.produto)!==alvo) return;
-        const vals=valoresItem(item);
-        if(vals.length) regs.push({cotacao:c, data:String(c.data||''), id:c.id||'', vals});
+        if(!prodCombina(item.produto, alvo)) return;
+        const vals=valoresItem(item); if(!vals.length) return;
+        regs.push({data:c.data||'', id:c.id||'', vals});
       });
     });
     if(!regs.length) return null;
-    regs.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || valorTempo(b.cotacao)-valorTempo(a.cotacao));
-    const dataMaisRecente = regs[0].data;
+    regs.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(b.id).localeCompare(String(a.id)));
+    const dataMaisRecente=regs[0].data;
     let melhor=null;
-    regs.filter(r=>r.data===dataMaisRecente).forEach(r=>{
-      r.vals.forEach(v=>{
-        if(!melhor || Number(v.valor)>Number(melhor.valor)){
-          melhor = {valor:Number(v.valor)||0, fornecedor:v.fornecedor, data:r.data, cotacaoId:r.id};
-        }
-      });
-    });
+    regs.filter(r=>r.data===dataMaisRecente).forEach(r=>r.vals.forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor,fornecedor:v.fornecedor,data:r.data,cotacaoId:r.id}; }));
     return melhor;
   }
-
-  // Regra central: Gestão e Vendedores consultam a mesma cotação vigente.
   window.baireCotacaoVigenteUnica = cotacaoVigenteUnica;
-  window.baireMaiorValorCotado = cotacaoVigenteUnica;
-  window.baireCotacaoVigenteFuncionario = cotacaoVigenteUnica;
 
-  // Reforça a seleção de custo na Gestão para usar a mesma regra da Cotação Vendas.
-  if(typeof window.orcSI === 'function'){
-    window.orcSI = function(i,sku){
-      const inp=qs('os'+i); if(inp) inp.value=String(sku||'').toUpperCase();
-      qs('orac'+i)?.classList.remove('open');
-      const cot=cotacaoVigenteUnica(sku);
-      const ci=qs('oc'+i);
-      if(ci){
-        if(cot){
-          ci.value=Number(cot.valor).toFixed(2);
-          ci.style.background='#ecfdf5';
-          ci.title='Custo pela cotação vigente: data mais recente em até 7 dias; maior valor da data. '+cot.fornecedor+' em '+fmtData(cot.data);
-        } else {
-          ci.value='';
-          ci.style.background='#fff7ed';
-          ci.title='Sem cotação válida em até 7 dias: preencher manualmente';
-        }
-      }
-      if(typeof orcCalc==='function') orcCalc();
-    };
-  }
-
-  // Histórico de Cotações: mais recente no topo.
-  window.baireRenderHistoricoCotacoes = function(){
-    try { if(typeof window.baireRenderPainelCompraCotacoes === 'function') window.baireRenderPainelCompraCotacoes(); } catch(e){}
-    try { if(typeof window.baireRenderBuscaProdutoVenda === 'function') window.baireRenderBuscaProdutoVenda(); } catch(e){}
-    const tb=qs('cot-hist'); if(!tb) return;
-    const q=normaliza(qs('cot-busca')?.value||'');
-    let arr=ordenarCotacoes(cotacoes());
-    if(q) arr=arr.filter(c=>normaliza(JSON.stringify(c)).includes(q));
-    if(!arr.length){ tb.innerHTML='<tr><td colspan="5" class="empty">Nenhuma cotação salva ainda.</td></tr>'; return; }
-    tb.innerHTML=arr.map(c=>{
-      const produtos=[...new Set((c.itens||[]).map(i=>normaliza(i.produto)))].slice(0,8).join(', ');
-      const fornecedores=(c.fornecedores||[]).join(', ');
-      return `<tr><td>${fmtData(c.data)}</td><td style="max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(produtos)}">${esc(produtos||'-')}</td><td>${esc(fornecedores||'-')}</td><td style="text-align:right">${(c.itens||[]).length}</td><td style="white-space:nowrap"><button class="btn-secondary btn-sm" onclick="baireAbrirCotacao(${JSON.stringify(c.id)})">Abrir</button> <button class="btn-danger btn-sm" onclick="baireExcluirCotacao(${JSON.stringify(c.id)})">Excluir</button></td></tr>`;
-    }).join('');
+  const oldOrcSI=window.orcSI;
+  window.orcSI=function(i,sku){
+    if(typeof oldOrcSI==='function') oldOrcSI(i,sku);
+    const ci=qs('oc'+i);
+    const cot=cotacaoVigenteUnica(sku || qs('os'+i)?.value || '');
+    if(ci){
+      if(cot){ ci.value=Number(cot.valor).toFixed(2); ci.style.background='#ecfdf5'; ci.title='Custo pela cotação vigente: '+cot.fornecedor+' em '+fmtData(cot.data); }
+      else { ci.value=''; ci.style.background='#fff7ed'; ci.title='Sem cotação válida: preencher manualmente'; }
+    }
+    try{ if(typeof window.orcCalc==='function') window.orcCalc(); else if(typeof orcCalc==='function') orcCalc(); }catch(e){}
+  };
+  const oldOrcAC=window.orcAC;
+  window.orcAC=function(i){
+    if(typeof oldOrcAC==='function') return oldOrcAC(i);
   };
 
-  // Histórico Gestão/Orçamentos: mais recente no topo, sem alterar dados.
-  function ordenarHistoricoOrcamentosGestao(){
-    try{
-      if(!Array.isArray(window.orcHistory)) return;
-      window.orcHistory.sort((a,b)=>{
-        const da = String(b?.data || '').localeCompare(String(a?.data || ''));
-        if(da) return da;
-        const ta = new Date(a?.atualizadoEm || a?.criadoEm || a?.data || 0).getTime() || Number(a?.num || a?.id || 0) || 0;
-        const tb = new Date(b?.atualizadoEm || b?.criadoEm || b?.data || 0).getTime() || Number(b?.num || b?.id || 0) || 0;
-        return tb-ta;
-      });
-    }catch(e){}
-  }
-  if(typeof window.orcRH === 'function'){
-    const oldOrcRH = window.orcRH;
-    window.orcRH = function(){
-      ordenarHistoricoOrcamentosGestao();
-      return oldOrcRH.apply(this, arguments);
-    };
-  }
-
-  // Abrir cotação para edição e garantir que a cotação inteira apareça.
-  window.baireAbrirCotacao = function(id){
-    const c=cotacoes().find(x=>String(x.id)===String(id)); if(!c) return;
-    window.__baireCotEditId = c.id;
-    if(qs('cot-data')) qs('cot-data').value=c.data||hojeISO();
-
-    // Marca fornecedores participantes.
-    try{
-      if(typeof window.showPage === 'function') showPage('cotacoes');
-      if(typeof window.baireRenderCotTabela === 'function') window.baireRenderCotTabela();
-      document.querySelectorAll('#cot-fornecedores input').forEach(i=>{
-        i.checked=(c.fornecedores||[]).map(normaliza).includes(normaliza(i.value));
-      });
-      if(typeof window.baireRenderCotTabela === 'function') window.baireRenderCotTabela();
-    }catch(e){}
-
-    const body=qs('cot-body');
-    const head=qs('cot-head');
-    const fornecedores = (c.fornecedores||[]).map(normaliza);
-    if(head){
-      head.innerHTML=`<tr><th style="min-width:230px">Produto</th><th style="width:100px;text-align:right">Quantidade</th>${fornecedores.map(f=>`<th style="text-align:right">${esc(f)}</th>`).join('')}<th>Observação</th><th>Ações</th></tr>`;
-    }
-    if(body){
-      body.innerHTML='';
-      (c.itens||[]).forEach(item=>{
-        const tr=document.createElement('tr');
-        tr.innerHTML=`<td style="min-width:230px"><input class="cot-prod" list="cot-produtos-lista" type="text" value="${esc(item.produto||'')}" placeholder="PRODUTO/SKU" style="width:100%"></td>
-          <td style="width:100px"><input class="cot-qtd" type="number" min="0" step="1" value="${numBR(item.qtd)||''}" style="width:100%;text-align:right"></td>
-          ${fornecedores.map(f=>`<td style="width:120px"><input class="cot-valor" data-forn="${esc(f)}" type="number" min="0" step="0.01" value="${numBR(item.valores?.[f]||0)||''}" style="width:100%;text-align:right"></td>`).join('')}
-          <td style="min-width:160px"><input class="cot-obs" type="text" value="${esc(item.obs||'')}" placeholder="OBS." style="width:100%"></td>
-          <td style="width:76px;text-align:center"><button class="btn-danger btn-sm" onclick="this.closest('tr').remove()">Excluir</button></td>`;
-        body.appendChild(tr);
-      });
-    }
-    const card=qs('cot-tabela')?.closest('.card') || qs('cot-body')?.closest('.card');
-    if(card) setTimeout(()=>card.scrollIntoView({behavior:'smooth',block:'start'}),80);
-  };
-
-  // Salvar cotação aberta: grava alterações de custo/produto na cotação original.
-  window.baireSalvarCotacao = async function(){
-    const data=qs('cot-data')?.value || hojeISO();
-    const fornecedores=[...document.querySelectorAll('#cot-fornecedores input:checked')].map(i=>normaliza(i.value));
-    const itens=[...document.querySelectorAll('#cot-body tr')].map(tr=>{
-      const produto=normaliza(tr.querySelector('.cot-prod')?.value||'');
-      const qtd=numBR(tr.querySelector('.cot-qtd')?.value||0);
-      const obs=normaliza(tr.querySelector('.cot-obs')?.value||'');
-      const valores={};
-      tr.querySelectorAll('.cot-valor').forEach(inp=>{ valores[normaliza(inp.dataset.forn)] = numBR(inp.value); });
-      return {produto,qtd,valores,obs};
-    }).filter(x=>x.produto);
-    if(!fornecedores.length){ alert('Selecione pelo menos um fornecedor.'); return; }
-    if(!itens.length){ alert('Inclua pelo menos um produto na cotação.'); return; }
-
-    let arr=cotacoes();
-    const id = window.__baireCotEditId || Date.now();
-    const antigo = arr.find(c=>String(c.id)===String(id)) || {};
-    const obj={
-      ...antigo,
-      id,
-      data,
-      fornecedores,
-      itens,
-      atualizadoEm:new Date().toISOString(),
-      criadoPor: antigo.criadoPor || (window.usuarioLogado?.nome||window.usuarioLogado?.usuario||'')
-    };
-    const idx=arr.findIndex(c=>String(c.id)===String(id));
-    if(idx>=0) arr[idx]=obj; else arr.unshift(obj);
-    salvarCotacoes(arr);
-    window.__baireCotEditId = id;
-    if(qs('cot-busca')) qs('cot-busca').value='';
-    if(typeof window.baireRenderHistoricoCotacoes === 'function') window.baireRenderHistoricoCotacoes();
-    try { if(typeof window.baireRenderPainelCompraCotacoes === 'function') window.baireRenderPainelCompraCotacoes(); } catch(e){}
-    alert('✓ Cotação salva/atualizada com as alterações de custo e produtos.');
-  };
-
-  // Botões dentro da cotação escolhida em Consulta/Mapa.
-  function garantirBotoesMapa(){
-    const actions = document.querySelector('#cot-mapa-wrap .cot-mapa-actions');
-    if(!actions) return;
-    if(!qs('btn-cot-add-prod-consulta')){
-      const b=document.createElement('button');
-      b.id='btn-cot-add-prod-consulta';
-      b.className='btn-green';
-      b.textContent='➕ Adicionar produto nesta cotação';
-      b.onclick=function(){ window.baireAdicionarProdutoNaCotacaoSelecionada(); };
-      actions.insertBefore(b, actions.firstChild);
-    }
-    if(!qs('btn-cot-salvar-mapa')){
-      const b=document.createElement('button');
-      b.id='btn-cot-salvar-mapa';
-      b.className='btn-primary';
-      b.textContent='💾 Salvar alterações desta cotação';
-      b.onclick=function(){ window.baireSalvarAlteracoesMapaCotacao(); };
-      actions.insertBefore(b, actions.children[1] || null);
-    }
-  }
-  window.baireAdicionarProdutoNaCotacaoSelecionada=function(){
-    const id=qs('cot-analise-id')?.value;
-    if(!id){ alert('Selecione uma cotação específica no campo "Mapa de compra — escolher cotação".'); return; }
-    window.baireAbrirCotacao(id);
+  window.baireAdicionarProdutoNaCotacaoAberta=function(){
+    const id=String(qs('cot-analise-id')?.value||'');
+    if(!id){ alert('Selecione primeiro uma cotação em "Ver cotação de compra".'); return; }
+    if(typeof window.baireAbrirCotacao==='function') window.baireAbrirCotacao(id);
     setTimeout(()=>{
-      const body=qs('cot-body');
-      if(body){
-        const forn=[...document.querySelectorAll('#cot-fornecedores input:checked')].map(i=>normaliza(i.value));
-        const tr=document.createElement('tr');
-        tr.innerHTML=`<td style="min-width:230px"><input class="cot-prod" list="cot-produtos-lista" type="text" value="" placeholder="PRODUTO/SKU" style="width:100%"></td>
-          <td style="width:100px"><input class="cot-qtd" type="number" min="0" step="1" value="" style="width:100%;text-align:right"></td>
-          ${forn.map(f=>`<td style="width:120px"><input class="cot-valor" data-forn="${esc(f)}" type="number" min="0" step="0.01" value="" style="width:100%;text-align:right"></td>`).join('')}
-          <td style="min-width:160px"><input class="cot-obs" type="text" value="" placeholder="OBS." style="width:100%"></td>
-          <td style="width:76px;text-align:center"><button class="btn-danger btn-sm" onclick="this.closest('tr').remove()">Excluir</button></td>`;
-        body.appendChild(tr);
-        tr.scrollIntoView({behavior:'smooth',block:'center'});
-        tr.querySelector('.cot-prod')?.focus();
-      }
-    },180);
+      try{ if(typeof window.baireAddLinhaCotacao==='function') window.baireAddLinhaCotacao(); }catch(e){}
+      const tabela=qs('cot-tabela'); if(tabela) tabela.scrollIntoView({behavior:'smooth',block:'center'});
+      const campos=document.querySelectorAll('#cot-body .cot-prod');
+      if(campos.length) campos[campos.length-1].focus();
+    },100);
   };
+
   window.baireSalvarAlteracoesMapaCotacao=function(){
-    const id=qs('cot-analise-id')?.value;
-    if(!id){ alert('Selecione uma cotação específica para salvar alterações.'); return; }
+    const id=String(qs('cot-analise-id')?.value||'');
+    if(!id){ alert('Selecione primeiro uma cotação para salvar alterações.'); return; }
     const arr=cotacoes();
-    const c=arr.find(x=>String(x.id)===String(id));
-    if(!c){ alert('Cotação não encontrada.'); return; }
+    const idx=arr.findIndex(c=>String(c.id)===id);
+    if(idx<0){ alert('Cotação não encontrada.'); return; }
+    const cot=arr[idx];
     const rows=[...document.querySelectorAll('#cot-mapa-table tbody tr[data-row]')];
     rows.forEach(tr=>{
-      const idx=Number(tr.getAttribute('data-row'));
-      if(!c.itens || !c.itens[idx]) return;
+      const prodTxt=normaliza(tr.querySelector('.cot-prod-cell')?.textContent||'');
+      const item=(cot.itens||[]).find(it=>prodCombina(it.produto, prodTxt));
+      if(!item) return;
       const qtdInp=tr.querySelector('.cot-map-qtd-input');
-      if(qtdInp) c.itens[idx].qtd = numBR(qtdInp.value);
-      c.itens[idx].valores = c.itens[idx].valores || {};
-      tr.querySelectorAll('.cot-map-valor-input').forEach(inp=>{
-        const f=normaliza(inp.dataset.forn);
-        c.itens[idx].valores[f] = numBR(inp.value);
-      });
+      if(qtdInp) item.qtd=numBR(qtdInp.value);
+      if(!item.valores) item.valores={};
+      tr.querySelectorAll('.cot-map-valor-input[data-forn]').forEach(inp=>{ item.valores[normaliza(inp.getAttribute('data-forn')||'')]=numBR(inp.value); });
     });
-    c.atualizadoEm=new Date().toISOString();
-    salvarCotacoes(arr);
-    if(typeof window.baireRenderPainelCompraCotacoes === 'function') window.baireRenderPainelCompraCotacoes();
-    if(typeof window.baireRenderHistoricoCotacoes === 'function') window.baireRenderHistoricoCotacoes();
+    cot.atualizadoEm=new Date().toISOString();
+    arr[idx]=cot; salvarCotacoes(arr);
+    try{ if(typeof window.baireRenderHistoricoCotacoes==='function') window.baireRenderHistoricoCotacoes(); }catch(e){}
+    try{ if(typeof window.baireCotacoesSubirNuvem==='function') window.baireCotacoesSubirNuvem(false); }catch(e){}
     alert('✓ Alterações de custo/quantidade salvas nesta cotação.');
   };
 
-  // Reaplica botões após renderização da consulta/mapa.
-  if(typeof window.baireRenderPainelCompraCotacoes === 'function'){
-    const oldPainel = window.baireRenderPainelCompraCotacoes;
-    window.baireRenderPainelCompraCotacoes = function(){
-      const r = oldPainel.apply(this, arguments);
-      setTimeout(garantirBotoesMapa, 50);
-      return r;
-    };
-  }
-  document.addEventListener('DOMContentLoaded', ()=>setTimeout(()=>{
-    garantirBotoesMapa();
-    if(typeof window.baireRenderHistoricoCotacoes === 'function') window.baireRenderHistoricoCotacoes();
-  }, 900));
-  setTimeout(()=>{ garantirBotoesMapa(); if(typeof window.baireRenderHistoricoCotacoes === 'function') window.baireRenderHistoricoCotacoes(); }, 1600);
-})();
-</script>
-
-
-
-<script>
-// AJUSTE 2026-06-10: Gestão > Orçamento
-// - sincroniza título Orçamento # com campo Nº orçamento/pedido
-// - adiciona botão Novo orçamento no topo
-// - preenche Custo unitário pela mesma cotação vigente usada em Cotação Vendas
-// - permite localizar 285, 285A ou 285A / 435 / 436 pela mesma família de produto
-(function(){
-  function qs(id){ return document.getElementById(id); }
-  function norm(s){
-    return String(s||'')
-      .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-      .toUpperCase().replace(/[^A-Z0-9]/g,'');
-  }
-  function num(v){
-    if(v===null || v===undefined || v==='') return 0;
-    if(typeof v==='number') return isFinite(v)?v:0;
-    let s=String(v).trim().replace(/R\$|\s/g,'');
-    if(s.includes(',') && s.includes('.')) s=s.replace(/\./g,'').replace(',', '.');
-    else s=s.replace(',', '.');
-    const n=Number(s);
-    return isFinite(n)?n:0;
-  }
-  function hojeBR(){
-    try{ if(typeof baireHojeLocalISO==='function') return baireHojeLocalISO(); }catch(e){}
-    const p=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).reduce((a,x)=>{a[x.type]=x.value;return a;},{});
-    return `${p.year}-${p.month}-${p.day}`;
-  }
-  function fmtData(d){
-    if(!d) return '-';
-    const s=String(d).slice(0,10), p=s.split('-');
-    return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : String(d);
-  }
-  function cotacoes(){
-    try{
-      let a=JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores') || 'null');
-      if(!Array.isArray(a)) a=JSON.parse(localStorage.getItem('cotacoesFornecedor') || '[]');
-      return Array.isArray(a)?a:[];
-    }catch(e){ return []; }
-  }
-  function itemValores(item){
-    const out=[];
-    Object.entries(item && item.valores ? item.valores : {}).forEach(([forn,v])=>{
-      const n=num(v);
-      if(n>0) out.push({fornecedor:String(forn||'').toUpperCase(), valor:n});
-    });
-    return out;
-  }
-  function diasEntre(data){
-    if(!data) return 9999;
-    const h=new Date(hojeBR()+'T00:00:00');
-    const d=new Date(String(data).slice(0,10)+'T00:00:00');
-    if(!Number.isFinite(d.getTime())) return 9999;
-    return Math.floor((h-d)/86400000);
-  }
-  function matchProduto(a,b){
-    const A=norm(a), B=norm(b);
-    if(!A || !B) return false;
-    if(A===B || A.includes(B) || B.includes(A)) return true;
-    // Família 285: aceita 285, 285A, 435, 436 quando o cadastro é 285A / 435 / 436
-    const fam285=['285','285A','435','436'];
-    if(fam285.some(x=>A.includes(x)) && fam285.some(x=>B.includes(x))) return true;
-    return false;
-  }
-  function cotacaoVigenteFlex(produto){
-    const regs=[];
-    cotacoes().forEach(c=>{
-      const dias=diasEntre(c.data);
-      if(dias<0 || dias>7) return;
-      (c.itens||[]).forEach(item=>{
-        if(!matchProduto(item.produto, produto)) return;
-        const vals=itemValores(item);
-        if(vals.length) regs.push({cotacao:c, item, data:String(c.data||''), vals});
-      });
-    });
-    if(!regs.length) return null;
-    regs.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || ((new Date(b.cotacao.atualizadoEm||b.cotacao.criadoEm||0).getTime()||Number(b.cotacao.id)||0) - (new Date(a.cotacao.atualizadoEm||a.cotacao.criadoEm||0).getTime()||Number(a.cotacao.id)||0)));
-    const dataMaisRecente=regs[0].data;
-    let melhor=null;
-    regs.filter(r=>r.data===dataMaisRecente).forEach(r=>{
-      r.vals.forEach(v=>{
-        if(!melhor || v.valor>melhor.valor){
-          melhor={valor:v.valor, fornecedor:v.fornecedor, data:r.data, produto:r.item.produto, cotacaoId:r.cotacao.id};
-        }
-      });
-    });
-    return melhor;
-  }
-  function custoUltimaCompraFlex(produto){
-    let melhor=null;
-    try{
-      const arr=Array.isArray(window.nfs)?window.nfs:(typeof nfs!=='undefined'?nfs:[]);
-      arr.forEach(n=>{
-        if(!matchProduto(n.produto, produto)) return;
-        const v=num(n.valor);
-        if(v<=0) return;
-        const t=new Date(String(n.data||'')+'T00:00:00').getTime() || 0;
-        if(!melhor || t>melhor.t) melhor={valor:v, data:n.data, fornecedor:n.fornecedor, produto:n.produto, t};
-      });
-    }catch(e){}
-    return melhor;
-  }
-  function preencherCustoLinha(i, produto, forcar){
-    const p=String(produto || qs('os'+i)?.value || '').trim();
-    const ci=qs('oc'+i);
-    if(!p || !ci) return false;
-    const atual=num(ci.value);
-    if(atual>0 && !forcar) return true;
-    const cot=cotacaoVigenteFlex(p);
-    if(cot){
-      ci.value=Number(cot.valor).toFixed(2);
-      ci.style.background='#ecfdf5';
-      ci.title='Custo pela cotação vigente: '+cot.produto+' | '+cot.fornecedor+' | '+fmtData(cot.data);
-      if(typeof window.orcCalc==='function') window.orcCalc();
-      return true;
-    }
-    const nf=custoUltimaCompraFlex(p);
-    if(nf){
-      ci.value=Number(nf.valor).toFixed(2);
-      ci.style.background='#fff7ed';
-      ci.title='Sem cotação válida; custo pela última compra: '+nf.produto+' | '+fmtData(nf.data);
-      if(typeof window.orcCalc==='function') window.orcCalc();
-      return true;
-    }
-    return false;
-  }
-  function syncNumeroTitulo(){
-    const lbl=qs('orc-num-lbl');
-    if(!lbl) return;
-    const ped=String(qs('orc-pedido')?.value || '').trim();
-    const n=ped || String(window.orcNum || (typeof orcNum!=='undefined'?orcNum:1) || 1).padStart(3,'0');
-    lbl.textContent='Orçamento #'+n;
-  }
-  function garantirBotaoNovoTopo(){
-    const line=document.querySelector('#page-orcamento #onovo .orc-topline');
-    if(!line || qs('btnNovoOrcamentoTopo')) return;
-    const b=document.createElement('button');
-    b.id='btnNovoOrcamentoTopo';
-    b.className='btn-secondary';
-    b.style.marginLeft='8px';
-    b.textContent='➕ Novo orçamento';
-    b.onclick=function(){
-      try{ if(typeof window.orcNovo==='function') window.orcNovo(); }
-      finally{ setTimeout(()=>{ syncNumeroTitulo(); instalarEventosProdutos(); },150); }
-    };
-    line.appendChild(b);
-  }
-  function instalarEventosProdutos(){
-    for(let i=0;i<50;i++){
-      const inp=qs('os'+i);
-      if(!inp || inp.dataset.baireCustoFix==='1') continue;
-      inp.dataset.baireCustoFix='1';
-      const tentar=()=>setTimeout(()=>preencherCustoLinha(i, inp.value, false),120);
-      inp.addEventListener('change', tentar);
-      inp.addEventListener('blur', tentar);
-      inp.addEventListener('keydown', e=>{ if(e.key==='Enter') { e.preventDefault(); preencherCustoLinha(i, inp.value, true); }});
-      inp.addEventListener('input', ()=>{ const ci=qs('oc'+i); if(ci && num(ci.value)===0) setTimeout(()=>preencherCustoLinha(i, inp.value, false),250); });
-    }
-  }
-  // Sobrescreve seleção do autocomplete para sempre trazer custo pela cotação vigente flexível.
-  window.orcSI=function(i,sku){
-    const inp=qs('os'+i); if(inp) inp.value=String(sku||'');
-    qs('orac'+i)?.classList.remove('open');
-    preencherCustoLinha(i, sku, true);
-    syncNumeroTitulo();
+  const oldRenderHistCot=window.baireRenderHistoricoCotacoes;
+  window.baireRenderHistoricoCotacoes=function(){
+    if(typeof oldRenderHistCot==='function') oldRenderHistCot();
+    const tb=qs('cot-hist'); if(!tb) return;
+    // Se a função original já renderizou, ela pode ter usado ordem local; reordena visualmente por data/ID desc.
+    const linhas=[...tb.querySelectorAll('tr')];
+    linhas.sort((ra,rb)=>String(rb.cells?.[0]?.textContent||'').localeCompare(String(ra.cells?.[0]?.textContent||'')));
+    linhas.forEach(tr=>tb.appendChild(tr));
   };
-  // Envolve orcInit/orcAtualizarNumeroTela para instalar correções depois da montagem da tela.
-  const oldInit=window.orcInit;
-  if(typeof oldInit==='function'){
-    window.orcInit=function(){
-      const r=oldInit.apply(this, arguments);
-      setTimeout(()=>{ syncNumeroTitulo(); garantirBotaoNovoTopo(); instalarEventosProdutos(); },80);
-      return r;
-    };
-  }
-  const oldAtualiza=window.orcAtualizarNumeroTela;
-  if(typeof oldAtualiza==='function'){
-    window.orcAtualizarNumeroTela=function(){
-      const r=oldAtualiza.apply(this, arguments);
-      setTimeout(syncNumeroTitulo,20);
-      return r;
-    };
-  }
-  // Mantém título e campo sincronizados mesmo após abrir histórico ou restaurar JSON.
-  setInterval(()=>{ syncNumeroTitulo(); garantirBotaoNovoTopo(); instalarEventosProdutos(); },1000);
-  document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>{ syncNumeroTitulo(); garantirBotaoNovoTopo(); instalarEventosProdutos(); },300));
-  window.bairePreencherCustoOrcamentoGestao = preencherCustoLinha;
-  window.baireCotacaoVigenteUnica = cotacaoVigenteFlex;
-  window.baireMaiorValorCotado = cotacaoVigenteFlex;
-  window.baireCotacaoVigenteFuncionario = cotacaoVigenteFlex;
-})();
-</script>
 
-
-
-<script id="baire-ajuste-2026-06-10-custo-gestao-somente-cotacao-forcado">
-/*
-  AJUSTE URGENTE 2026-06-10
-  Problema: Gestão > Orçamento estava puxando custo de NF/última compra (ex.: 89,22 do Mercado Livre)
-  em vez da cotação vigente usada em Cotação Vendas.
-  Regra corrigida: custo do orçamento administrativo vem SOMENTE da cotação vigente:
-  - cotação mais recente dentro de até 7 dias;
-  - dentro dessa data, maior valor cotado do produto/família;
-  - se não houver cotação válida, não substitui por NF/última compra.
-*/
-(function(){
-  const K1='baire_cotacoes_fornecedores', K2='cotacoesFornecedor';
-  function qs(id){return document.getElementById(id);}
-  function norm(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');}
-  function num(v){
-    if(v===null||v===undefined||v==='') return 0;
-    if(typeof v==='number') return isFinite(v)?v:0;
-    let s=String(v).trim().replace(/R\$|\s/g,'');
-    if(s.includes(',')&&s.includes('.')) s=s.replace(/\./g,'').replace(',', '.'); else s=s.replace(',', '.');
-    const n=Number(s); return isFinite(n)?n:0;
-  }
-  function hojeISO(){
-    try{ if(typeof baireHojeLocalISO==='function') return baireHojeLocalISO(); }catch(e){}
-    const p=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).reduce((a,x)=>{a[x.type]=x.value;return a;},{});
-    return `${p.year}-${p.month}-${p.day}`;
-  }
-  function fmtData(d){const p=String(d||'').slice(0,10).split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:String(d||'');}
-  function cotacoes(){
-    try{ if(typeof window.baireCotacoes==='function'){ const a=window.baireCotacoes(); if(Array.isArray(a)) return a; } }catch(e){}
-    try{
-      let a=JSON.parse(localStorage.getItem(K1)||'null');
-      if(!Array.isArray(a)) a=JSON.parse(localStorage.getItem(K2)||'[]');
-      return Array.isArray(a)?a:[];
-    }catch(e){return [];}
-  }
-  function diasEntre(data){
-    if(!data) return 9999;
-    const h=new Date(hojeISO()+'T00:00:00');
-    const d=new Date(String(data).slice(0,10)+'T00:00:00');
-    if(!Number.isFinite(d.getTime())) return 9999;
-    return Math.floor((h-d)/86400000);
-  }
-  function matchProduto(cadastrado, digitado){
-    const A=norm(cadastrado), B=norm(digitado);
-    if(!A||!B) return false;
-    if(A===B || A.includes(B) || B.includes(A)) return true;
-    const fam285=['285','285A','435','436'];
-    if(fam285.some(x=>A.includes(x)) && fam285.some(x=>B.includes(x))) return true;
-    return false;
-  }
-  function valoresItem(item){
-    const out=[];
-    Object.entries(item && item.valores ? item.valores : {}).forEach(([forn,v])=>{
-      const n=num(v); if(n>0) out.push({fornecedor:String(forn||'').toUpperCase(), valor:n});
+  const oldOrcRH=window.orcRH || (typeof orcRH==='function'?orcRH:null);
+  window.orcRH=function(){
+    if(typeof oldOrcRH==='function') oldOrcRH();
+    const tb=qs('ohist-body'); if(!tb) return;
+    const rows=[...tb.querySelectorAll('tr')];
+    rows.sort((a,b)=>{
+      const na=parseInt(String(a.cells?.[0]?.textContent||'').replace(/[^0-9]/g,''),10)||0;
+      const nb=parseInt(String(b.cells?.[0]?.textContent||'').replace(/[^0-9]/g,''),10)||0;
+      return nb-na;
     });
-    return out;
-  }
-  function tempoCot(c){
-    const t=new Date(c?.atualizadoEm||c?.criadoEm||c?.data||0).getTime();
-    if(Number.isFinite(t)&&t) return t;
-    const id=Number(c?.id||0); return Number.isFinite(id)?id:0;
-  }
-  function cotacaoVigenteSomenteCotacao(produto){
-    const regs=[];
-    cotacoes().forEach(c=>{
-      const dias=diasEntre(c.data);
-      if(dias<0 || dias>7) return;
-      (c.itens||[]).forEach(item=>{
-        if(!matchProduto(item.produto, produto)) return;
-        const vals=valoresItem(item);
-        if(vals.length) regs.push({cotacao:c,item,data:String(c.data||''),vals});
-      });
-    });
-    if(!regs.length) return null;
-    regs.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || tempoCot(b.cotacao)-tempoCot(a.cotacao));
-    const dataMaisRecente=regs[0].data;
-    let melhor=null;
-    regs.filter(r=>r.data===dataMaisRecente).forEach(r=>{
-      r.vals.forEach(v=>{
-        if(!melhor || v.valor>melhor.valor){
-          melhor={valor:v.valor, fornecedor:v.fornecedor, data:r.data, produto:r.item.produto, cotacaoId:r.cotacao.id};
-        }
-      });
-    });
-    return melhor;
-  }
-  function aplicarCustoGestao(i, force){
-    const inp=qs('os'+i), ci=qs('oc'+i);
-    if(!inp || !ci) return false;
-    const prod=String(inp.value||'').trim();
-    if(!prod) return false;
-    const cot=cotacaoVigenteSomenteCotacao(prod);
-    if(!cot) return false;
-    const atual=num(ci.value);
-    if(force || Math.abs(atual-cot.valor)>0.004){
-      ci.value=Number(cot.valor).toFixed(2);
-      ci.style.background='#ecfdf5';
-      ci.title='Custo pela COTAÇÃO vigente: '+cot.produto+' | '+cot.fornecedor+' | '+fmtData(cot.data)+' (não é NF/última compra)';
-      try{ if(typeof window.orcCalc==='function') window.orcCalc(); }catch(e){}
-    }
-    return true;
-  }
-  function linhaDoAlvo(el){
-    if(!el || !el.id) return null;
-    const m=String(el.id).match(/^os(\d+)$/); return m?Number(m[1]):null;
-  }
-  function reforcarLinha(i){
-    [30,120,350,750].forEach(ms=>setTimeout(()=>aplicarCustoGestao(i,true),ms));
-  }
-  // Override da função chamada pelo autocomplete da Gestão.
-  window.orcSI=function(i,sku){
-    const inp=qs('os'+i); if(inp) inp.value=String(sku||'');
-    try{ qs('orac'+i)?.classList.remove('open'); }catch(e){}
-    reforcarLinha(Number(i)||0);
+    rows.forEach(r=>tb.appendChild(r));
   };
-  // Mantém compatibilidade com os nomes usados nas outras abas, mas agora sem cair em NF.
-  window.baireCotacaoVigenteGestao = cotacaoVigenteSomenteCotacao;
-  window.baireCotacaoVigenteUnica = cotacaoVigenteSomenteCotacao;
-  window.baireMaiorValorCotado = cotacaoVigenteSomenteCotacao;
-  window.baireCotacaoVigenteFuncionario = cotacaoVigenteSomenteCotacao;
-  window.bairePreencherCustoOrcamentoGestao=function(i){return aplicarCustoGestao(i,true);};
-
-  document.addEventListener('change', e=>{const i=linhaDoAlvo(e.target); if(i!==null) reforcarLinha(i);}, true);
-  document.addEventListener('blur', e=>{const i=linhaDoAlvo(e.target); if(i!==null) reforcarLinha(i);}, true);
-  document.addEventListener('keydown', e=>{const i=linhaDoAlvo(e.target); if(i!==null && e.key==='Enter') reforcarLinha(i);}, true);
-  document.addEventListener('input', e=>{const i=linhaDoAlvo(e.target); if(i!==null) setTimeout(()=>aplicarCustoGestao(i,true),450);}, true);
-
-  // Proteção contra scripts antigos que preencham 89,22 depois: revalida linhas preenchidas na tela de orçamento.
-  setInterval(()=>{
-    if(!document.querySelector('#page-orcamento.active') && !document.querySelector('#onovo')) return;
-    for(let i=0;i<30;i++){
-      const inp=qs('os'+i);
-      if(inp && String(inp.value||'').trim()) aplicarCustoGestao(i,false);
-    }
-  },1200);
-})();
-</script>
-
-
-
-<script id="baire-ajuste-2026-06-10-final-sugerido-historico">
-/*
-  AJUSTE FINAL 2026-06-10
-  1) Histórico de Orçamentos/Gestão sempre em ordem decrescente: maior número / mais recente em cima.
-  2) Garante que a tela redesenhe o histórico com a função corrigida ao entrar na aba Histórico.
-*/
-(function(){
-  function oEl2(id){return document.getElementById(id);}
-  function parseNum(v){const n=Number(String(v||'').replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:0;}
-  function parseDataBR(d){
-    if(!d) return 0;
-    const s=String(d).trim();
-    let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if(m) return new Date(+m[1],+m[2]-1,+m[3]).getTime();
-    m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-    if(m) return new Date(+m[3],+m[2]-1,+m[1]).getTime();
-    const t=new Date(s).getTime(); return Number.isFinite(t)?t:0;
-  }
-  function sortHistOrc(arr){
-    return (Array.isArray(arr)?arr:[]).map((h,idx)=>({h,idx})).sort((a,b)=>{
-      const nb=parseNum(b.h?.num||b.h?.numero||b.h?.id||0), na=parseNum(a.h?.num||a.h?.numero||a.h?.id||0);
-      if(nb!==na) return nb-na;
-      const tb=parseDataBR(b.h?.dataHora||b.h?.atualizadoEm||b.h?.criadoEm||b.h?.data), ta=parseDataBR(a.h?.dataHora||a.h?.atualizadoEm||a.h?.criadoEm||a.h?.data);
-      if(tb!==ta) return tb-ta;
-      return b.idx-a.idx;
-    });
-  }
-  window.baireOrdenarHistoricoOrcamentos=function(){
-    try{
-      let h=[]; try{h=JSON.parse(localStorage.getItem('orc_history')||'[]')||[];}catch(e){h=Array.isArray(window.orcHistory)?window.orcHistory:[];}
-      const ord=sortHistOrc(h).map(x=>x.h);
-      if(Array.isArray(ord)){
-        window.orcHistory=ord;
-        localStorage.setItem('orc_history', JSON.stringify(ord));
-      }
-    }catch(e){}
-  };
-  const oldRH=window.orcRH;
-  if(typeof oldRH==='function'){
-    window.orcRH=function(){
-      try{ window.baireOrdenarHistoricoOrcamentos(); }catch(e){}
-      return oldRH.apply(this, arguments);
-    };
-  }
-  const oldShow=window.orcShowTab;
-  if(typeof oldShow==='function'){
-    window.orcShowTab=function(t){
-      if(t==='ohist') try{ window.baireOrdenarHistoricoOrcamentos(); }catch(e){}
-      const r=oldShow.apply(this, arguments);
-      if(t==='ohist') setTimeout(()=>{try{window.baireOrdenarHistoricoOrcamentos(); if(typeof oldRH==='function') oldRH();}catch(e){}},80);
-      return r;
-    };
-  }
-  document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>{try{window.baireOrdenarHistoricoOrcamentos();}catch(e){}},500));
 })();
 </script>
 
