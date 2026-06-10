@@ -8691,13 +8691,33 @@ function salvarOrcamentoTopoSeguro(){
     Object.entries(item?.valores||{}).forEach(([f,v])=>{ const n=numBR(v); if(n>0) vals.push({fornecedor:normaliza(f),valor:n}); });
     return vals;
   }
+  function baireChaveProdutoCotacao(txt){
+    return normaliza(txt).replace(/[^A-Z0-9]/g,'');
+  }
+  function baireProdutoCotacaoCombina(a,b){
+    const aa=baireChaveProdutoCotacao(a), bb=baireChaveProdutoCotacao(b);
+    if(!aa || !bb) return false;
+    if(aa===bb) return true;
+    return aa.includes(bb) || bb.includes(aa);
+  }
   function maiorValorCotado(produto){
-    const alvo=normaliza(produto); let melhor=null;
+    const alvo=normaliza(produto); if(!alvo) return null;
+    const registros=[];
     cotacoes().forEach(c=>{
+      const dias = (typeof diasEntre==='function') ? diasEntre(c.data) : 0;
+      if(dias<0 || dias>7) return;
       (c.itens||[]).forEach(item=>{
-        if(normaliza(item.produto)!==alvo) return;
-        valoresItem(item).forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor, fornecedor:v.fornecedor, data:c.data||'', cotacaoId:c.id||''}; });
+        if(!baireProdutoCotacaoCombina(item.produto, alvo)) return;
+        const vals=valoresItem(item);
+        if(vals.length) registros.push({data:c.data||'', id:c.id||'', vals});
       });
+    });
+    if(!registros.length) return null;
+    registros.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(b.id).localeCompare(String(a.id)));
+    const dataMaisRecente=registros[0].data;
+    let melhor=null;
+    registros.filter(r=>r.data===dataMaisRecente).forEach(r=>{
+      r.vals.forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor, fornecedor:v.fornecedor, data:r.data, cotacaoId:r.id}; });
     });
     return melhor;
   }
@@ -8782,6 +8802,8 @@ function salvarOrcamentoTopoSeguro(){
               <div><span>🧾 Mapa de compra da cotação</span><div class="cot-mapa-ajuda" id="cot-mapa-status">Selecione uma cotação para abrir o mapa por fornecedor.</div></div>
               <div class="cot-mapa-actions">
                 <button class="btn-secondary" onclick="baireMarcarMenoresMapaCompra()">✅ Marcar menores</button>
+                <button class="btn-primary" onclick="baireAdicionarProdutoNaCotacaoAberta()">➕ Adicionar produto nesta cotação</button>
+                <button class="btn-green" onclick="baireSalvarAlteracoesMapaCotacao()">💾 Salvar custos/quantidades</button>
                 <button class="btn-primary" onclick="baireToggleMapaCompraTelaCheia(true)">🔎 Abrir mapa</button>
                 <button class="btn-secondary cot-btn-fechar" onclick="baireToggleMapaCompraTelaCheia(false)">Fechar</button>
               </div>
@@ -9319,12 +9341,14 @@ function salvarOrcamentoTopoSeguro(){
   }
   function cotacaoVigente(produto){
     const alvo=normaliza(produto); if(!alvo) return null;
+    function chave(txt){ return normaliza(txt).replace(/[^A-Z0-9]/g,''); }
+    function combina(a,b){ const aa=chave(a), bb=chave(b); return !!aa && !!bb && (aa===bb || aa.includes(bb) || bb.includes(aa)); }
     const registros=[];
     cotacoes().forEach(c=>{
       const dias=diasEntre(c.data);
       if(dias<0 || dias>7) return;
       (c.itens||[]).forEach(item=>{
-        if(normaliza(item.produto)!==alvo) return;
+        if(!combina(item.produto, alvo)) return;
         const vals=valoresItem(item);
         if(!vals.length) return;
         registros.push({data:c.data||'', id:c.id||'', vals});
@@ -10765,6 +10789,123 @@ function salvarOrcamentoTopoSeguro(){
   };
   document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>{protegerEntrada(); renderHistoricoSeguro();},1000));
   setTimeout(()=>{protegerEntrada(); renderHistoricoSeguro();},1800);
+})();
+</script>
+
+
+<script>
+/* AJUSTE 2026-06-10: reforço final sem mexer no JSON
+   - histórico de orçamentos mais recente no topo
+   - botão dentro da cotação selecionada para adicionar produto
+   - salvar custo/quantidade editados no mapa de compra
+   - Gestão e Vendedor usam mesma cotação vigente por equivalência de SKU (285 = 285A / 435 / 436)
+*/
+(function(){
+  function qs(id){return document.getElementById(id);}
+  function normaliza(txt){return String(txt||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
+  function chaveProd(txt){return normaliza(txt).replace(/[^A-Z0-9]/g,'');}
+  function prodCombina(a,b){const aa=chaveProd(a), bb=chaveProd(b); return !!aa && !!bb && (aa===bb || aa.includes(bb) || bb.includes(aa));}
+  function numBR(v){ if(v===null||v===undefined) return 0; if(typeof v==='number') return isFinite(v)?v:0; let s=String(v).trim().replace(/R\$|\s/g,''); if(!s) return 0; if(s.includes(',')&&s.includes('.')) s=s.replace(/\./g,'').replace(',', '.'); else s=s.replace(',', '.'); const n=Number(s); return isFinite(n)?n:0; }
+  function moeda(n){ n=Number(n)||0; return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+  function fmtData(d){ if(!d)return '-'; const p=String(d).split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d; }
+  function diasEntre(iso){ if(!iso) return 9999; const a=new Date(String(iso).slice(0,10)+'T00:00:00'); const b=new Date(); b.setHours(0,0,0,0); return Math.floor((b-a)/(1000*60*60*24)); }
+  function cotacoes(){ try{ if(typeof window.baireCotacoes==='function') return window.baireCotacoes(); }catch(e){} try{return JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores')||localStorage.getItem('cotacoesFornecedor')||'[]')||[];}catch(e){return [];} }
+  function salvarCotacoes(arr){ try{ localStorage.setItem('baire_cotacoes_fornecedores',JSON.stringify(arr)); localStorage.setItem('cotacoesFornecedor',JSON.stringify(arr)); }catch(e){} }
+  function valoresItem(item){ const vals=[]; Object.entries((item&&item.valores)||{}).forEach(([f,v])=>{ const n=numBR(v); if(n>0) vals.push({fornecedor:normaliza(f),valor:n}); }); return vals; }
+  function cotacaoVigenteUnica(produto){
+    const alvo=normaliza(produto); if(!alvo) return null;
+    const regs=[];
+    cotacoes().forEach(c=>{
+      const dias=diasEntre(c.data); if(dias<0 || dias>7) return;
+      (c.itens||[]).forEach(item=>{
+        if(!prodCombina(item.produto, alvo)) return;
+        const vals=valoresItem(item); if(!vals.length) return;
+        regs.push({data:c.data||'', id:c.id||'', vals});
+      });
+    });
+    if(!regs.length) return null;
+    regs.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(b.id).localeCompare(String(a.id)));
+    const dataMaisRecente=regs[0].data;
+    let melhor=null;
+    regs.filter(r=>r.data===dataMaisRecente).forEach(r=>r.vals.forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor,fornecedor:v.fornecedor,data:r.data,cotacaoId:r.id}; }));
+    return melhor;
+  }
+  window.baireCotacaoVigenteUnica = cotacaoVigenteUnica;
+
+  const oldOrcSI=window.orcSI;
+  window.orcSI=function(i,sku){
+    if(typeof oldOrcSI==='function') oldOrcSI(i,sku);
+    const ci=qs('oc'+i);
+    const cot=cotacaoVigenteUnica(sku || qs('os'+i)?.value || '');
+    if(ci){
+      if(cot){ ci.value=Number(cot.valor).toFixed(2); ci.style.background='#ecfdf5'; ci.title='Custo pela cotação vigente: '+cot.fornecedor+' em '+fmtData(cot.data); }
+      else { ci.value=''; ci.style.background='#fff7ed'; ci.title='Sem cotação válida: preencher manualmente'; }
+    }
+    try{ if(typeof window.orcCalc==='function') window.orcCalc(); else if(typeof orcCalc==='function') orcCalc(); }catch(e){}
+  };
+  const oldOrcAC=window.orcAC;
+  window.orcAC=function(i){
+    if(typeof oldOrcAC==='function') return oldOrcAC(i);
+  };
+
+  window.baireAdicionarProdutoNaCotacaoAberta=function(){
+    const id=String(qs('cot-analise-id')?.value||'');
+    if(!id){ alert('Selecione primeiro uma cotação em "Ver cotação de compra".'); return; }
+    if(typeof window.baireAbrirCotacao==='function') window.baireAbrirCotacao(id);
+    setTimeout(()=>{
+      try{ if(typeof window.baireAddLinhaCotacao==='function') window.baireAddLinhaCotacao(); }catch(e){}
+      const tabela=qs('cot-tabela'); if(tabela) tabela.scrollIntoView({behavior:'smooth',block:'center'});
+      const campos=document.querySelectorAll('#cot-body .cot-prod');
+      if(campos.length) campos[campos.length-1].focus();
+    },100);
+  };
+
+  window.baireSalvarAlteracoesMapaCotacao=function(){
+    const id=String(qs('cot-analise-id')?.value||'');
+    if(!id){ alert('Selecione primeiro uma cotação para salvar alterações.'); return; }
+    const arr=cotacoes();
+    const idx=arr.findIndex(c=>String(c.id)===id);
+    if(idx<0){ alert('Cotação não encontrada.'); return; }
+    const cot=arr[idx];
+    const rows=[...document.querySelectorAll('#cot-mapa-table tbody tr[data-row]')];
+    rows.forEach(tr=>{
+      const prodTxt=normaliza(tr.querySelector('.cot-prod-cell')?.textContent||'');
+      const item=(cot.itens||[]).find(it=>prodCombina(it.produto, prodTxt));
+      if(!item) return;
+      const qtdInp=tr.querySelector('.cot-map-qtd-input');
+      if(qtdInp) item.qtd=numBR(qtdInp.value);
+      if(!item.valores) item.valores={};
+      tr.querySelectorAll('.cot-map-valor-input[data-forn]').forEach(inp=>{ item.valores[normaliza(inp.getAttribute('data-forn')||'')]=numBR(inp.value); });
+    });
+    cot.atualizadoEm=new Date().toISOString();
+    arr[idx]=cot; salvarCotacoes(arr);
+    try{ if(typeof window.baireRenderHistoricoCotacoes==='function') window.baireRenderHistoricoCotacoes(); }catch(e){}
+    try{ if(typeof window.baireCotacoesSubirNuvem==='function') window.baireCotacoesSubirNuvem(false); }catch(e){}
+    alert('✓ Alterações de custo/quantidade salvas nesta cotação.');
+  };
+
+  const oldRenderHistCot=window.baireRenderHistoricoCotacoes;
+  window.baireRenderHistoricoCotacoes=function(){
+    if(typeof oldRenderHistCot==='function') oldRenderHistCot();
+    const tb=qs('cot-hist'); if(!tb) return;
+    // Se a função original já renderizou, ela pode ter usado ordem local; reordena visualmente por data/ID desc.
+    const linhas=[...tb.querySelectorAll('tr')];
+    linhas.sort((ra,rb)=>String(rb.cells?.[0]?.textContent||'').localeCompare(String(ra.cells?.[0]?.textContent||'')));
+    linhas.forEach(tr=>tb.appendChild(tr));
+  };
+
+  const oldOrcRH=window.orcRH || (typeof orcRH==='function'?orcRH:null);
+  window.orcRH=function(){
+    if(typeof oldOrcRH==='function') oldOrcRH();
+    const tb=qs('ohist-body'); if(!tb) return;
+    const rows=[...tb.querySelectorAll('tr')];
+    rows.sort((a,b)=>{
+      const na=parseInt(String(a.cells?.[0]?.textContent||'').replace(/[^0-9]/g,''),10)||0;
+      const nb=parseInt(String(b.cells?.[0]?.textContent||'').replace(/[^0-9]/g,''),10)||0;
+      return nb-na;
+    });
+    rows.forEach(r=>tb.appendChild(r));
+  };
 })();
 </script>
 
