@@ -9330,24 +9330,39 @@ function salvarOrcamentoTopoSeguro(){
     return vals;
   }
   function cotacaoVigente(produto){
+    // Regra unificada com Gestão: cotação mais recente válida (até 7 dias)
+    // e, dentro dessa data, maior valor cotado. Compatibiliza 285, 285A, 435 e 436.
     const alvo=normaliza(produto); if(!alvo) return null;
+    const soAlnum=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+    const matchProduto=(a,b)=>{
+      const A=soAlnum(a), B=soAlnum(b);
+      if(!A||!B) return false;
+      if(A===B || A.includes(B) || B.includes(A)) return true;
+      const fam=['285','285A','435','436'];
+      return fam.some(x=>A.includes(x)) && fam.some(x=>B.includes(x));
+    };
+    const tempoCot=c=>{
+      const t=new Date(c?.atualizadoEm||c?.criadoEm||c?.data||0).getTime();
+      if(Number.isFinite(t)&&t) return t;
+      const id=Number(c?.id||0); return Number.isFinite(id)?id:0;
+    };
     const registros=[];
     cotacoes().forEach(c=>{
       const dias=diasEntre(c.data);
       if(dias<0 || dias>7) return;
       (c.itens||[]).forEach(item=>{
-        if(normaliza(item.produto)!==alvo) return;
+        if(!matchProduto(item.produto, produto)) return;
         const vals=valoresItem(item);
         if(!vals.length) return;
-        registros.push({data:c.data||'', id:c.id||'', vals});
+        registros.push({data:c.data||'', id:c.id||'', vals, item, cotacao:c, tempo:tempoCot(c)});
       });
     });
     if(!registros.length) return null;
-    registros.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(b.id).localeCompare(String(a.id)));
+    registros.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || (b.tempo-a.tempo) || String(b.id).localeCompare(String(a.id)));
     const dataMaisRecente=registros[0].data;
     let melhor=null;
     registros.filter(r=>r.data===dataMaisRecente).forEach(r=>{
-      r.vals.forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor, fornecedor:v.fornecedor, data:r.data, cotacaoId:r.id}; });
+      r.vals.forEach(v=>{ if(!melhor || v.valor>melhor.valor) melhor={valor:v.valor, fornecedor:v.fornecedor, data:r.data, cotacaoId:r.id, produto:r.item?.produto||produto}; });
     });
     return melhor;
   }
@@ -11293,6 +11308,205 @@ function salvarOrcamentoTopoSeguro(){
   window.baireCotacaoVigenteUnica = cotacaoVigenteFlex;
   window.baireMaiorValorCotado = cotacaoVigenteFlex;
   window.baireCotacaoVigenteFuncionario = cotacaoVigenteFlex;
+})();
+</script>
+
+
+
+<script id="baire-ajuste-2026-06-10-custo-gestao-somente-cotacao-forcado">
+/*
+  AJUSTE URGENTE 2026-06-10
+  Problema: Gestão > Orçamento estava puxando custo de NF/última compra (ex.: 89,22 do Mercado Livre)
+  em vez da cotação vigente usada em Cotação Vendas.
+  Regra corrigida: custo do orçamento administrativo vem SOMENTE da cotação vigente:
+  - cotação mais recente dentro de até 7 dias;
+  - dentro dessa data, maior valor cotado do produto/família;
+  - se não houver cotação válida, não substitui por NF/última compra.
+*/
+(function(){
+  const K1='baire_cotacoes_fornecedores', K2='cotacoesFornecedor';
+  function qs(id){return document.getElementById(id);}
+  function norm(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');}
+  function num(v){
+    if(v===null||v===undefined||v==='') return 0;
+    if(typeof v==='number') return isFinite(v)?v:0;
+    let s=String(v).trim().replace(/R\$|\s/g,'');
+    if(s.includes(',')&&s.includes('.')) s=s.replace(/\./g,'').replace(',', '.'); else s=s.replace(',', '.');
+    const n=Number(s); return isFinite(n)?n:0;
+  }
+  function hojeISO(){
+    try{ if(typeof baireHojeLocalISO==='function') return baireHojeLocalISO(); }catch(e){}
+    const p=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).reduce((a,x)=>{a[x.type]=x.value;return a;},{});
+    return `${p.year}-${p.month}-${p.day}`;
+  }
+  function fmtData(d){const p=String(d||'').slice(0,10).split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:String(d||'');}
+  function cotacoes(){
+    try{ if(typeof window.baireCotacoes==='function'){ const a=window.baireCotacoes(); if(Array.isArray(a)) return a; } }catch(e){}
+    try{
+      let a=JSON.parse(localStorage.getItem(K1)||'null');
+      if(!Array.isArray(a)) a=JSON.parse(localStorage.getItem(K2)||'[]');
+      return Array.isArray(a)?a:[];
+    }catch(e){return [];}
+  }
+  function diasEntre(data){
+    if(!data) return 9999;
+    const h=new Date(hojeISO()+'T00:00:00');
+    const d=new Date(String(data).slice(0,10)+'T00:00:00');
+    if(!Number.isFinite(d.getTime())) return 9999;
+    return Math.floor((h-d)/86400000);
+  }
+  function matchProduto(cadastrado, digitado){
+    const A=norm(cadastrado), B=norm(digitado);
+    if(!A||!B) return false;
+    if(A===B || A.includes(B) || B.includes(A)) return true;
+    const fam285=['285','285A','435','436'];
+    if(fam285.some(x=>A.includes(x)) && fam285.some(x=>B.includes(x))) return true;
+    return false;
+  }
+  function valoresItem(item){
+    const out=[];
+    Object.entries(item && item.valores ? item.valores : {}).forEach(([forn,v])=>{
+      const n=num(v); if(n>0) out.push({fornecedor:String(forn||'').toUpperCase(), valor:n});
+    });
+    return out;
+  }
+  function tempoCot(c){
+    const t=new Date(c?.atualizadoEm||c?.criadoEm||c?.data||0).getTime();
+    if(Number.isFinite(t)&&t) return t;
+    const id=Number(c?.id||0); return Number.isFinite(id)?id:0;
+  }
+  function cotacaoVigenteSomenteCotacao(produto){
+    const regs=[];
+    cotacoes().forEach(c=>{
+      const dias=diasEntre(c.data);
+      if(dias<0 || dias>7) return;
+      (c.itens||[]).forEach(item=>{
+        if(!matchProduto(item.produto, produto)) return;
+        const vals=valoresItem(item);
+        if(vals.length) regs.push({cotacao:c,item,data:String(c.data||''),vals});
+      });
+    });
+    if(!regs.length) return null;
+    regs.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || tempoCot(b.cotacao)-tempoCot(a.cotacao));
+    const dataMaisRecente=regs[0].data;
+    let melhor=null;
+    regs.filter(r=>r.data===dataMaisRecente).forEach(r=>{
+      r.vals.forEach(v=>{
+        if(!melhor || v.valor>melhor.valor){
+          melhor={valor:v.valor, fornecedor:v.fornecedor, data:r.data, produto:r.item.produto, cotacaoId:r.cotacao.id};
+        }
+      });
+    });
+    return melhor;
+  }
+  function aplicarCustoGestao(i, force){
+    const inp=qs('os'+i), ci=qs('oc'+i);
+    if(!inp || !ci) return false;
+    const prod=String(inp.value||'').trim();
+    if(!prod) return false;
+    const cot=cotacaoVigenteSomenteCotacao(prod);
+    if(!cot) return false;
+    const atual=num(ci.value);
+    if(force || Math.abs(atual-cot.valor)>0.004){
+      ci.value=Number(cot.valor).toFixed(2);
+      ci.style.background='#ecfdf5';
+      ci.title='Custo pela COTAÇÃO vigente: '+cot.produto+' | '+cot.fornecedor+' | '+fmtData(cot.data)+' (não é NF/última compra)';
+      try{ if(typeof window.orcCalc==='function') window.orcCalc(); }catch(e){}
+    }
+    return true;
+  }
+  function linhaDoAlvo(el){
+    if(!el || !el.id) return null;
+    const m=String(el.id).match(/^os(\d+)$/); return m?Number(m[1]):null;
+  }
+  function reforcarLinha(i){
+    [30,120,350,750].forEach(ms=>setTimeout(()=>aplicarCustoGestao(i,true),ms));
+  }
+  // Override da função chamada pelo autocomplete da Gestão.
+  window.orcSI=function(i,sku){
+    const inp=qs('os'+i); if(inp) inp.value=String(sku||'');
+    try{ qs('orac'+i)?.classList.remove('open'); }catch(e){}
+    reforcarLinha(Number(i)||0);
+  };
+  // Mantém compatibilidade com os nomes usados nas outras abas, mas agora sem cair em NF.
+  window.baireCotacaoVigenteGestao = cotacaoVigenteSomenteCotacao;
+  window.baireCotacaoVigenteUnica = cotacaoVigenteSomenteCotacao;
+  window.baireMaiorValorCotado = cotacaoVigenteSomenteCotacao;
+  window.baireCotacaoVigenteFuncionario = cotacaoVigenteSomenteCotacao;
+  window.bairePreencherCustoOrcamentoGestao=function(i){return aplicarCustoGestao(i,true);};
+
+  document.addEventListener('change', e=>{const i=linhaDoAlvo(e.target); if(i!==null) reforcarLinha(i);}, true);
+  document.addEventListener('blur', e=>{const i=linhaDoAlvo(e.target); if(i!==null) reforcarLinha(i);}, true);
+  document.addEventListener('keydown', e=>{const i=linhaDoAlvo(e.target); if(i!==null && e.key==='Enter') reforcarLinha(i);}, true);
+  document.addEventListener('input', e=>{const i=linhaDoAlvo(e.target); if(i!==null) setTimeout(()=>aplicarCustoGestao(i,true),450);}, true);
+
+  // Proteção contra scripts antigos que preencham 89,22 depois: revalida linhas preenchidas na tela de orçamento.
+  setInterval(()=>{
+    if(!document.querySelector('#page-orcamento.active') && !document.querySelector('#onovo')) return;
+    for(let i=0;i<30;i++){
+      const inp=qs('os'+i);
+      if(inp && String(inp.value||'').trim()) aplicarCustoGestao(i,false);
+    }
+  },1200);
+})();
+</script>
+
+
+
+<script id="baire-ajuste-2026-06-10-final-sugerido-historico">
+/*
+  AJUSTE FINAL 2026-06-10
+  1) Histórico de Orçamentos/Gestão sempre em ordem decrescente: maior número / mais recente em cima.
+  2) Garante que a tela redesenhe o histórico com a função corrigida ao entrar na aba Histórico.
+*/
+(function(){
+  function oEl2(id){return document.getElementById(id);}
+  function parseNum(v){const n=Number(String(v||'').replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:0;}
+  function parseDataBR(d){
+    if(!d) return 0;
+    const s=String(d).trim();
+    let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(m) return new Date(+m[1],+m[2]-1,+m[3]).getTime();
+    m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if(m) return new Date(+m[3],+m[2]-1,+m[1]).getTime();
+    const t=new Date(s).getTime(); return Number.isFinite(t)?t:0;
+  }
+  function sortHistOrc(arr){
+    return (Array.isArray(arr)?arr:[]).map((h,idx)=>({h,idx})).sort((a,b)=>{
+      const nb=parseNum(b.h?.num||b.h?.numero||b.h?.id||0), na=parseNum(a.h?.num||a.h?.numero||a.h?.id||0);
+      if(nb!==na) return nb-na;
+      const tb=parseDataBR(b.h?.dataHora||b.h?.atualizadoEm||b.h?.criadoEm||b.h?.data), ta=parseDataBR(a.h?.dataHora||a.h?.atualizadoEm||a.h?.criadoEm||a.h?.data);
+      if(tb!==ta) return tb-ta;
+      return b.idx-a.idx;
+    });
+  }
+  window.baireOrdenarHistoricoOrcamentos=function(){
+    try{
+      let h=[]; try{h=JSON.parse(localStorage.getItem('orc_history')||'[]')||[];}catch(e){h=Array.isArray(window.orcHistory)?window.orcHistory:[];}
+      const ord=sortHistOrc(h).map(x=>x.h);
+      if(Array.isArray(ord)){
+        window.orcHistory=ord;
+        localStorage.setItem('orc_history', JSON.stringify(ord));
+      }
+    }catch(e){}
+  };
+  const oldRH=window.orcRH;
+  if(typeof oldRH==='function'){
+    window.orcRH=function(){
+      try{ window.baireOrdenarHistoricoOrcamentos(); }catch(e){}
+      return oldRH.apply(this, arguments);
+    };
+  }
+  const oldShow=window.orcShowTab;
+  if(typeof oldShow==='function'){
+    window.orcShowTab=function(t){
+      if(t==='ohist') try{ window.baireOrdenarHistoricoOrcamentos(); }catch(e){}
+      const r=oldShow.apply(this, arguments);
+      if(t==='ohist') setTimeout(()=>{try{window.baireOrdenarHistoricoOrcamentos(); if(typeof oldRH==='function') oldRH();}catch(e){}},80);
+      return r;
+    };
+  }
+  document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>{try{window.baireOrdenarHistoricoOrcamentos();}catch(e){}},500));
 })();
 </script>
 
