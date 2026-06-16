@@ -301,6 +301,46 @@ function baireHojeLocalISO(){
   return `${partes.year}-${partes.month}-${partes.day}`;
 }
 </script>
+
+<style>
+/* AJUSTE 2026-06-16: impressão limpa da tela de Cotações */
+.baire-print-cotacoes-titulo{display:none;}
+@media print{
+  @page{size:A4 landscape;margin:8mm;}
+  body.baire-print-cotacoes{background:#fff!important;color:#111!important;font-size:10px!important;}
+  body.baire-print-cotacoes header,
+  body.baire-print-cotacoes .tabs,
+  body.baire-print-cotacoes .page:not(#page-cotacoes),
+  body.baire-print-cotacoes button,
+  body.baire-print-cotacoes .btn-primary,
+  body.baire-print-cotacoes .btn-secondary,
+  body.baire-print-cotacoes .btn-green,
+  body.baire-print-cotacoes .cot-mapa-actions,
+  body.baire-print-cotacoes .search-wrap{display:none!important;}
+  body.baire-print-cotacoes #page-cotacoes{display:block!important;padding:0!important;margin:0!important;overflow:visible!important;}
+  body.baire-print-cotacoes #page-cotacoes .card{break-inside:avoid;page-break-inside:avoid;border:1px solid #bbb!important;border-radius:0!important;margin:0 0 8px 0!important;box-shadow:none!important;overflow:visible!important;}
+  body.baire-print-cotacoes #page-cotacoes .card-header{padding:7px 9px!important;border-bottom:1px solid #ccc!important;background:#f5f5f5!important;}
+  body.baire-print-cotacoes #page-cotacoes .card-header h2{font-size:13px!important;color:#111!important;}
+  body.baire-print-cotacoes #page-cotacoes .help{font-size:9px!important;color:#444!important;}
+  body.baire-print-cotacoes #page-cotacoes div[style*="overflow-x:auto"],
+  body.baire-print-cotacoes #page-cotacoes .cot-mapa-scroll{overflow:visible!important;max-height:none!important;border:0!important;}
+  body.baire-print-cotacoes #page-cotacoes table,
+  body.baire-print-cotacoes #page-cotacoes .cot-mapa-table{width:100%!important;min-width:0!important;border-collapse:collapse!important;font-size:9px!important;}
+  body.baire-print-cotacoes #page-cotacoes th,
+  body.baire-print-cotacoes #page-cotacoes td{padding:4px 5px!important;border:1px solid #ddd!important;white-space:normal!important;vertical-align:top!important;}
+  body.baire-print-cotacoes #page-cotacoes th{background:#e9eef5!important;color:#111!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  body.baire-print-cotacoes #page-cotacoes .cot-melhor{background:#d9f7df!important;border:1px solid #16a34a!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  body.baire-print-cotacoes #page-cotacoes input,
+  body.baire-print-cotacoes #page-cotacoes select{border:0!important;background:transparent!important;padding:0!important;font-size:10px!important;box-shadow:none!important;}
+  body.baire-print-cotacoes #page-cotacoes .form-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important;}
+  body.baire-print-cotacoes #page-cotacoes .baire-print-cotacoes-titulo{display:block!important;text-align:center;margin:0 0 8px 0!important;padding-bottom:6px!important;border-bottom:2px solid #111!important;}
+  body.baire-print-cotacoes #page-cotacoes .baire-print-cotacoes-titulo h1{font-size:16px!important;margin:0!important;}
+  body.baire-print-cotacoes #page-cotacoes .baire-print-cotacoes-titulo div{font-size:10px!important;color:#333!important;margin-top:2px!important;}
+  body.baire-print-cotacoes #cot-mapa-wrap.cot-mapa-fullscreen{position:static!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;display:block!important;box-shadow:none!important;border:1px solid #bbb!important;}
+  body.baire-print-cotacoes #page-cotacoes .cot-mapa-table th,
+  body.baire-print-cotacoes #page-cotacoes .cot-mapa-table td{position:static!important;left:auto!important;top:auto!important;bottom:auto!important;z-index:auto!important;}
+}
+</style>
 </head>
 <body>
 
@@ -8747,6 +8787,7 @@ function salvarOrcamentoTopoSeguro(){
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn-secondary" onclick="baireNovaCotacao()">Nova cotação</button>
+            <button class="btn-secondary" onclick="baireImprimirMapaCotacaoSelecionada()">🖨️ Imprimir mapa selecionado</button>
             <button class="btn-green" onclick="baireSalvarCotacao()">Salvar cotação</button>
             <button class="btn-primary" onclick="baireCotacoesBaixarNuvem(true)">☁️ Sincronizar cotações</button>
             <button class="btn-secondary" onclick="baireBackupCotacoes()">💾 Backup cotações</button>
@@ -8802,6 +8843,7 @@ function salvarOrcamentoTopoSeguro(){
               <div><span>🧾 Mapa de compra da cotação</span><div class="cot-mapa-ajuda" id="cot-mapa-status">Selecione uma cotação para abrir o mapa por fornecedor.</div></div>
               <div class="cot-mapa-actions">
                 <button class="btn-secondary" onclick="baireMarcarMenoresMapaCompra()">✅ Marcar menores</button>
+                <button class="btn-secondary" onclick="baireImprimirMapaCotacaoSelecionada()">🖨️ Imprimir mapa</button>
                 <button class="btn-primary" onclick="baireAdicionarProdutoNaCotacaoAberta()">➕ Adicionar produto nesta cotação</button>
                 <button class="btn-green" onclick="baireSalvarAlteracoesMapaCotacao()">💾 Salvar custos/quantidades</button>
                 <button class="btn-primary" onclick="baireToggleMapaCompraTelaCheia(true)">🔎 Abrir mapa</button>
@@ -10907,6 +10949,85 @@ function salvarOrcamentoTopoSeguro(){
     rows.forEach(r=>tb.appendChild(r));
   };
 })();
+</script>
+
+
+<script>
+// AJUSTE 2026-06-16: botão de impressão da tela de Cotações
+function baireImprimirCotacoes(){
+  try{
+    if(typeof baireRenderPainelCompraCotacoes === 'function') baireRenderPainelCompraCotacoes();
+    if(typeof baireRenderHistoricoCotacoes === 'function') baireRenderHistoricoCotacoes();
+  }catch(e){ console.warn(e); }
+  const page=document.getElementById('page-cotacoes');
+  if(!page){ alert('Tela de Cotações não encontrada.'); return; }
+  let titulo=page.querySelector('.baire-print-cotacoes-titulo');
+  if(!titulo){
+    titulo=document.createElement('div');
+    titulo.className='baire-print-cotacoes-titulo';
+    page.insertBefore(titulo,page.firstChild);
+  }
+  const dataInput=document.getElementById('cot-data');
+  const dataCot=dataInput && dataInput.value ? dataInput.value.split('-').reverse().join('/') : '';
+  titulo.innerHTML='<h1>BAIRE TONER - COTAÇÕES</h1><div>Impressão gerada em '+new Date().toLocaleString('pt-BR')+(dataCot?' · Data da cotação: '+dataCot:'')+'</div>';
+  document.body.classList.add('baire-print-cotacoes');
+  setTimeout(function(){ window.print(); },120);
+}
+window.addEventListener('afterprint',function(){ document.body.classList.remove('baire-print-cotacoes'); });
+</script>
+<script>
+// AJUSTE 2026-06-16: imprimir somente o MAPA da cotação selecionada
+function baireImprimirMapaCotacaoSelecionada(){
+  try{ if(typeof baireRenderPainelCompraCotacoes === 'function') baireRenderPainelCompraCotacoes(); }catch(e){}
+  const sel=document.getElementById('cot-analise-id');
+  const id=sel ? String(sel.value||'') : '';
+  if(!id){ alert('Selecione uma cotação no campo "Ver cotação de compra" para imprimir o mapa.'); return; }
+
+  const tabela=document.getElementById('cot-mapa-table');
+  if(!tabela || !tabela.querySelector('thead')){
+    alert('O mapa desta cotação ainda não foi montado. Clique em Atualizar consulta ou selecione novamente a cotação.');
+    return;
+  }
+
+  let nomeCotacao='Cotação selecionada';
+  let dataCot='';
+  try{
+    const arr=(typeof cotacoes==='function') ? cotacoes() : [];
+    const cot=arr.find(c=>String(c.id)===id);
+    if(cot){
+      nomeCotacao=(typeof cotacaoNome==='function') ? cotacaoNome(cot) : ('Cotação '+id);
+      dataCot=cot.data ? String(cot.data).split('-').reverse().join('/') : '';
+    }
+  }catch(e){}
+
+  const clone=tabela.cloneNode(true);
+  clone.querySelectorAll('button,.cot-btn-fechar').forEach(el=>el.remove());
+  clone.querySelectorAll('input').forEach(inp=>{
+    const span=document.createElement('span');
+    span.textContent=inp.value || '';
+    span.style.fontWeight='700';
+    inp.replaceWith(span);
+  });
+
+  const html='<!doctype html><html><head><meta charset="utf-8"><title>Mapa de cotação</title>'+
+  '<style>'+
+  '@page{size:A4 landscape;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:11px}'+
+  'h1{font-size:18px;margin:0 0 3px;color:#0a2342} .sub{font-size:11px;margin-bottom:10px;color:#475569}'+
+  'table{width:100%;border-collapse:collapse;table-layout:auto}th{background:#0a2342!important;color:#fff!important;padding:6px;border:1px solid #cbd5e1;text-align:center;font-size:10px}'+
+  'td{padding:5px;border:1px solid #cbd5e1;text-align:center;vertical-align:middle;font-size:10px}'+
+  '.cot-prod-cell{text-align:left!important;font-weight:800;color:#0a2342;min-width:120px}.cot-qtd-cell{font-weight:700}.cot-preco-cell{min-width:95px}'+
+  '.cot-melhor{background:#dcfce7!important;color:#14532d!important;border:2px solid #22c55e!important}.cot-sem-preco{background:#f8fafc;color:#94a3b8}'+
+  '.cot-cell-total{font-size:9px;color:#475569}.cot-total-row td,.cot-total-escolhido td{font-weight:800;background:#f1f5f9!important}'+
+  '</style></head><body>'+
+  '<h1>BAIRE TONER - MAPA DE COMPRA DA COTAÇÃO</h1>'+
+  '<div class="sub">'+nomeCotacao+(dataCot?' · Data: '+dataCot:'')+' · Impresso em '+new Date().toLocaleString('pt-BR')+'</div>'+
+  clone.outerHTML+'</body></html>';
+
+  const w=window.open('', '_blank');
+  if(!w){ alert('O navegador bloqueou a janela de impressão. Permita pop-ups para este site.'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+  setTimeout(()=>{ w.focus(); w.print(); },350);
+}
 </script>
 
 </body></html>
