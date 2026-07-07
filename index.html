@@ -7489,6 +7489,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       <div class="orc-tip">💡 Dica: altere quantidades ou valores de venda para simular cenários e ver o impacto nos índices em tempo real.</div>
       <div class="orc-actions">
         <button class="btn-secondary" onclick="orcCalc()">↻ Recalcular</button>
+        <button class="btn-green" onclick="orcAbrirEnvioCliente()">📲 Gerar apresentação para cliente</button>
         <button class="btn-primary" onclick="orcSalvar()">💾 Salvar orçamento</button>
         <button class="btn-secondary" onclick="orcNovo()">+ Novo orçamento</button>
       </div>
@@ -8030,6 +8031,126 @@ function orcCalc(){
     if(ab)ab.style.display='none'; if(side)side.className='orc-side'; if(ib)ib.innerHTML=''; if(ss)ss.textContent='0 de 3'; if(sg)sg.style.display='none';
   }
 }
+
+function orcEsc(v){
+  return String(v==null?'':v).replace(/[&<>"]/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch];});
+}
+function orcMoedaCliente(v){
+  v = Number(v)||0;
+  return 'R$ ' + v.toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+}
+function orcAbrirEnvioCliente(){
+  try{ if(typeof orcCalc==='function') orcCalc(); }catch(e){ console.warn('orcCalc falhou', e); }
+  const $ = (id)=>document.getElementById(id);
+  const esc = (v)=>String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});
+  const moeda = (v)=>'R$ ' + (Number(v)||0).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+  const numBRLocal = (v)=>{
+    if(typeof numBR==='function') return numBR(v);
+    if(v==null) return 0;
+    v=String(v).trim().replace(/\./g,'').replace(',','.');
+    return parseFloat(v)||0;
+  };
+  const cliente = (($('orc-cliente')||{}).value||'').trim() || 'Cliente';
+  const dataISO = (($('orc-data-inp')||{}).value||'') || (typeof baireHojeLocalISO==='function' ? baireHojeLocalISO() : new Date().toISOString().slice(0,10));
+  const dataFmt = (typeof fmtData==='function') ? fmtData(dataISO) : dataISO.split('-').reverse().join('/');
+  const numero = (($('orc-pedido')||{}).value||$('orc-num-lbl')?.textContent||'Orçamento').trim() || 'Orçamento';
+  const linhas = [];
+  let total = 0;
+  const totalRows = (typeof ORC_ROWS==='number' && ORC_ROWS>0) ? ORC_ROWS : 30;
+  for(let i=0;i<totalRows;i++){
+    const prod = (($('os'+i)||{}).value||'').trim();
+    const qtd = numBRLocal(($('oq'+i)||{}).value||0);
+    const venda = numBRLocal(($('ovc'+i)||{}).value||0);
+    if(prod && qtd>0 && venda>0){
+      const tot = qtd*venda;
+      total += tot;
+      linhas.push({prod,qtd,venda,tot});
+    }
+  }
+  if(!linhas.length){
+    alert('Inclua pelo menos um item com quantidade e valor de venda antes de gerar a apresentação.');
+    return;
+  }
+
+  let modal = $('baireClienteModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'baireClienteModal';
+    modal.innerHTML = `
+      <div class="bc-backdrop" onclick="orcFecharEnvioCliente()"></div>
+      <div class="bc-box">
+        <div class="bc-toolbar">
+          <button class="btn-secondary" onclick="orcFecharEnvioCliente()">Fechar</button>
+          <button class="btn-primary" onclick="window.print()">Imprimir / PDF</button>
+          <button class="btn-green" onclick="orcCopiarTextoCliente()">Copiar texto WhatsApp</button>
+        </div>
+        <div class="bc-edit">
+          <h3>Condições comerciais</h3>
+          <div class="bc-grid">
+            <label>Forma de pagamento<input id="bcPgto" value="Boleto 28 dias / PIX / conforme cadastro"></label>
+            <label>Validade<input id="bcValidade" value="2 dias"></label>
+            <label>Prazo de entrega<input id="bcEntrega" value="Imediato, conforme disponibilidade"></label>
+            <label class="bc-wide">Observações<textarea id="bcObs">Valores sujeitos à confirmação de estoque no fechamento do pedido.</textarea></label>
+          </div>
+        </div>
+        <div class="bc-card" id="bcCard"></div>
+        <textarea id="bcTextoZap" style="width:100%;height:170px;margin-top:12px;border:1px solid #d1d5db;border-radius:8px;padding:10px;font-size:13px"></textarea>
+      </div>`;
+    document.body.appendChild(modal);
+    const st = document.createElement('style');
+    st.id='baireClienteModalStyle';
+    st.textContent = `
+      #baireClienteModal{display:none;position:fixed;inset:0;z-index:9000;font-family:Arial,sans-serif;color:#111}
+      #baireClienteModal.open{display:block}
+      #baireClienteModal .bc-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.55)}
+      #baireClienteModal .bc-box{position:absolute;left:50%;top:20px;transform:translateX(-50%);width:min(920px,96vw);max-height:94vh;overflow:auto;background:#eef2f7;border-radius:14px;padding:14px;box-shadow:0 15px 45px rgba(0,0,0,.35)}
+      #baireClienteModal .bc-toolbar{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:10px}
+      #baireClienteModal .bc-edit{background:#fff;border:1px solid #dbe3ec;border-radius:12px;padding:14px;margin-bottom:12px}
+      #baireClienteModal .bc-edit h3{margin:0 0 10px;color:#1a3a5c;font-size:15px}
+      #baireClienteModal .bc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+      #baireClienteModal label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:800;color:#475569}
+      #baireClienteModal input,#baireClienteModal textarea{border:1px solid #cbd5e1;border-radius:8px;padding:9px 10px;font-size:13px;background:#fff}
+      #baireClienteModal textarea{min-height:68px;resize:vertical}.bc-wide{grid-column:1/-1}
+      #baireClienteModal .bc-card{background:#fff;border:1px solid #dbe3ec;border-radius:14px;padding:24px;box-shadow:0 8px 24px rgba(15,23,42,.10)}
+      #baireClienteModal .bc-head{display:flex;justify-content:space-between;gap:14px;border-bottom:3px solid #1a3a5c;padding-bottom:14px;margin-bottom:18px;align-items:center}
+      #baireClienteModal .bc-logo{font-size:26px;font-weight:900;color:#1a3a5c;letter-spacing:.5px}.bc-sub{font-size:12px;color:#64748b;margin-top:3px;font-weight:700}
+      #baireClienteModal .bc-num{text-align:right;font-size:13px;color:#475569}.bc-num b{font-size:18px;color:#1a3a5c}
+      #baireClienteModal .bc-cliente{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:16px;font-size:14px}.bc-cliente b{color:#1a3a5c}
+      #baireClienteModal table{width:100%;border-collapse:collapse;margin-top:8px}#baireClienteModal th{background:#1a3a5c;color:#fff;padding:10px 8px;text-align:left;font-size:12px}#baireClienteModal td{border-bottom:1px solid #e5e7eb;padding:10px 8px;font-size:13px}#baireClienteModal .r{text-align:right}
+      #baireClienteModal .bc-total{display:flex;justify-content:flex-end;margin-top:18px}.bc-totalbox{min-width:260px;background:#ecfdf5;border:1px solid #bbf7d0;border-radius:12px;padding:14px;text-align:right}.bc-totalbox .lbl{font-size:12px;color:#065f46;font-weight:800}.bc-totalbox .val{font-size:26px;font-weight:900;color:#065f46;margin-top:3px}
+      #baireClienteModal .bc-cond{margin-top:18px;background:#f8fafc;border:1px solid #dbe3ec;border-radius:12px;padding:14px 16px;font-size:13px;line-height:1.7}.bc-cond-title{font-size:14px;font-weight:900;color:#1a3a5c;margin-bottom:5px;text-transform:uppercase}.bc-ass{margin-top:12px;text-align:right;color:#1a3a5c;font-weight:900;font-size:14px}.bc-obs{margin-top:14px;font-size:12px;color:#64748b;line-height:1.5;border-top:1px solid #e5e7eb;padding-top:12px}
+      @media(max-width:700px){#baireClienteModal .bc-grid{grid-template-columns:1fr}#baireClienteModal .bc-head{align-items:flex-start}#baireClienteModal .bc-total{justify-content:stretch}.bc-totalbox{width:100%}}
+      @media print{body>*:not(#baireClienteModal){display:none!important}#baireClienteModal{position:static;display:block!important}#baireClienteModal .bc-backdrop,#baireClienteModal .bc-toolbar,#baireClienteModal .bc-edit,#bcTextoZap{display:none!important}#baireClienteModal .bc-box{position:static;transform:none;width:auto;max-height:none;overflow:visible;box-shadow:none;background:#fff;padding:0}#baireClienteModal .bc-card{box-shadow:none;border:0;border-radius:0}}
+    `;
+    document.head.appendChild(st);
+  }
+
+  window.baireClienteDados = {cliente,dataFmt,numero,linhas,total};
+  function atualizar(){ orcAtualizarPreviewCliente(); }
+  ['bcPgto','bcValidade','bcEntrega','bcObs'].forEach(id=>{ const el=$(id); if(el && !el.dataset.bcBind){ el.addEventListener('input',atualizar); el.dataset.bcBind='1'; }});
+  modal.classList.add('open');
+  orcAtualizarPreviewCliente();
+}
+function orcAtualizarPreviewCliente(){
+  const $=(id)=>document.getElementById(id);
+  const d=window.baireClienteDados; if(!d) return;
+  const esc=(v)=>String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});
+  const moeda=(v)=>'R$ '+(Number(v)||0).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+  const pgto=($('bcPgto')?.value||''), validade=($('bcValidade')?.value||''), entrega=($('bcEntrega')?.value||''), obs=($('bcObs')?.value||'');
+  const trs=d.linhas.map(it=>`<tr><td>${esc(it.prod)}</td><td class="r">${esc(it.qtd)}</td><td class="r">${esc(moeda(it.venda))}</td><td class="r"><b>${esc(moeda(it.tot))}</b></td></tr>`).join('');
+  $('bcCard').innerHTML = `<div class="bc-head"><div><div class="bc-logo">BAIRE TONER E MANUTENÇÃO DE IMPRESSORAS</div><div class="bc-sub">Orçamento comercial</div></div><div class="bc-num"><div>${esc(d.dataFmt)}</div><b>${esc(d.numero)}</b></div></div><div class="bc-cliente"><b>Cliente:</b> ${esc(d.cliente)}</div><table><thead><tr><th>Produto</th><th class="r">Qtd</th><th class="r">Valor unit.</th><th class="r">Total</th></tr></thead><tbody>${trs}</tbody></table><div class="bc-total"><div class="bc-totalbox"><div class="lbl">TOTAL DO ORÇAMENTO</div><div class="val">${esc(moeda(d.total))}</div></div></div><div class="bc-cond"><div class="bc-cond-title">Condições comerciais</div><div><b>Forma de pagamento:</b> ${esc(pgto)}</div><div><b>Validade do orçamento:</b> ${esc(validade)}</div><div><b>Prazo de entrega:</b> ${esc(entrega)}</div></div><div class="bc-obs"><b>Observações:</b> ${esc(obs).replace(/\n/g,'<br>')}</div><div class="bc-ass">Iris Coradi — WhatsApp (19) 98134-2211<br>BAIRE TONER E MANUTENÇÃO DE IMPRESSORAS</div>`;
+  const textoItens=d.linhas.map(it=>`• ${it.prod} — Qtd ${it.qtd} — ${moeda(it.venda)} un. — Total ${moeda(it.tot)}`).join('\n');
+  $('bcTextoZap').value = `Olá! Segue orçamento da Baire Toner:\n\nCliente: ${d.cliente}\nData: ${d.dataFmt}\nOrçamento: ${d.numero}\n\n${textoItens}\n\nTotal: ${moeda(d.total)}\nForma de pagamento: ${pgto}\nValidade: ${validade}\nPrazo de entrega: ${entrega}\nObservações: ${obs}\n\nAtendimento: Iris Coradi — WhatsApp (19) 98134-2211\nBaire Toner`;
+}
+function orcFecharEnvioCliente(){ const m=document.getElementById('baireClienteModal'); if(m) m.classList.remove('open'); }
+function orcCopiarTextoCliente(){
+  orcAtualizarPreviewCliente();
+  const txt=document.getElementById('bcTextoZap'); if(!txt) return;
+  txt.select(); txt.setSelectionRange(0,999999);
+  try{ document.execCommand('copy'); alert('Texto copiado para colar no WhatsApp.'); }
+  catch(e){ alert('Selecione o texto e copie manualmente.'); }
+}
+
 function orcSalvar(){
   let prods=[],itens=[],tQ=0,tC=0,tV=0,tVar=0;
   for(let i=0;i<ORC_ROWS;i++){
