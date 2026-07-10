@@ -4,6 +4,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Baire Controle Estoque 2026</title>
+<!-- CORREÇÃO 2026-07-10: histórico de cotações ordenado por data ISO; julho volta a aparecer no topo e pode ser editado -->
 <!-- AJUSTE 2026-06-04: Consulta de Preços por produto em matriz + Mapa de Compra separado -->
 <!-- AJUSTE 2026-06-04: mapa de compra em tela ampliada, cabeçalho fixo, qtd/valor editáveis e resumo escolhido -->
 <!-- AJUSTE 2026-06-04: mapa de compra por cotação com fornecedores horizontais, menor preço verde e seleção de compra -->
@@ -9317,7 +9318,11 @@ function salvarOrcamentoTopoSeguro(){
     try{ window.baireRenderBuscaProdutoVenda(); }catch(e){}
     const tb=qs('cot-hist'); if(!tb) return;
     const q=normaliza(qs('cot-busca')?.value||'');
-    let arr=cotacoes();
+    let arr=cotacoes().slice().sort((a,b)=>{
+      const porData=String(b.data||'').localeCompare(String(a.data||''));
+      if(porData) return porData;
+      return Number(b.id||0)-Number(a.id||0);
+    });
     if(q) arr=arr.filter(c=>normaliza(JSON.stringify(c)).includes(q));
     if(!arr.length){ tb.innerHTML='<tr><td colspan="5" class="empty">Nenhuma cotação salva ainda.</td></tr>'; return; }
     tb.innerHTML=arr.map(c=>{
@@ -11049,12 +11054,10 @@ function salvarOrcamentoTopoSeguro(){
 
   const oldRenderHistCot=window.baireRenderHistoricoCotacoes;
   window.baireRenderHistoricoCotacoes=function(){
+    // A função original já ordena pelos campos ISO data/ID antes de montar a tabela.
+    // Não reordenar pelas datas exibidas em DD/MM/AAAA, pois comparação textual
+    // colocava julho abaixo de junho e fazia as novas cotações parecerem ausentes.
     if(typeof oldRenderHistCot==='function') oldRenderHistCot();
-    const tb=qs('cot-hist'); if(!tb) return;
-    // Se a função original já renderizou, ela pode ter usado ordem local; reordena visualmente por data/ID desc.
-    const linhas=[...tb.querySelectorAll('tr')];
-    linhas.sort((ra,rb)=>String(rb.cells?.[0]?.textContent||'').localeCompare(String(ra.cells?.[0]?.textContent||'')));
-    linhas.forEach(tr=>tb.appendChild(tr));
   };
 
   const oldOrcRH=window.orcRH || (typeof orcRH==='function'?orcRH:null);
