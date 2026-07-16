@@ -8045,11 +8045,24 @@ function orcAbrirEnvioCliente(){
   const $ = (id)=>document.getElementById(id);
   const esc = (v)=>String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});
   const moeda = (v)=>'R$ ' + (Number(v)||0).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+  // Leitura segura dos valores da tela. Inputs type=number usam ponto decimal
+  // (ex.: 29.9). Valores formatados em pt-BR podem usar vírgula (ex.: 29,90).
+  // Não usar numBR() aqui, pois ela remove o ponto e transformava 29.9 em 299.
   const numBRLocal = (v)=>{
-    if(typeof numBR==='function') return numBR(v);
-    if(v==null) return 0;
-    v=String(v).trim().replace(/\./g,'').replace(',','.');
-    return parseFloat(v)||0;
+    if(v==null || v==='') return 0;
+    if(typeof v==='number') return Number.isFinite(v) ? v : 0;
+    let s=String(v).trim().replace(/\s/g,'').replace(/^R\$/i,'');
+    if(!s) return 0;
+    if(s.includes(',') && s.includes('.')){
+      // Formato brasileiro com milhar e decimal: 1.234,56
+      s=s.replace(/\./g,'').replace(',','.');
+    }else if(s.includes(',')){
+      // Decimal brasileiro: 29,90
+      s=s.replace(',','.');
+    }
+    // Quando há somente ponto, preserva como separador decimal: 29.9
+    const n=Number(s);
+    return Number.isFinite(n) ? n : 0;
   };
   const cliente = (($('orc-cliente')||{}).value||'').trim() || 'Cliente';
   const dataISO = (($('orc-data-inp')||{}).value||'') || (typeof baireHojeLocalISO==='function' ? baireHojeLocalISO() : new Date().toISOString().slice(0,10));
