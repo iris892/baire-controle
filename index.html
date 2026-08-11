@@ -4,6 +4,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Baire Controle Estoque 2026</title>
+<!-- CORREÇÃO 2026-08-11: sincronização robusta, merge antes de gravar, erro real de nuvem e Backup liberado para usuários -->
 <!-- CORREÇÃO 2026-07-10: histórico de cotações ordenado por data ISO; julho volta a aparecer no topo e pode ser editado -->
 <!-- AJUSTE 2026-06-04: Consulta de Preços por produto em matriz + Mapa de Compra separado -->
 <!-- AJUSTE 2026-06-04: mapa de compra em tela ampliada, cabeçalho fixo, qtd/valor editáveis e resumo escolhido -->
@@ -3647,28 +3648,33 @@ const SUPA_URL = 'https://lguuqzvqeuaxqbsawblj.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxndXVxenZxZXVheHFic2F3YmxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxODQ4MTksImV4cCI6MjA5MTc2MDgxOX0.cDcjCTzdansXpOg2S9vEceSRP_WVpTUjj5jxKz2VWk8';
 
 async function supaGet(id) {
-  try {
-    const r = await fetch(`${SUPA_URL}/rest/v1/dados?id=eq.${id}&select=conteudo`, {
-      headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` }
-    });
-    const data = await r.json();
-    return data && data.length > 0 ? data[0].conteudo : null;
-  } catch(e) { return null; }
+  const r = await fetch(`${SUPA_URL}/rest/v1/dados?id=eq.${encodeURIComponent(id)}&select=conteudo`, {
+    headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` }
+  });
+  if (!r.ok) {
+    const msg = await r.text().catch(()=> '');
+    throw new Error(`Nuvem GET ${id}: HTTP ${r.status}${msg ? ' - '+msg.slice(0,180) : ''}`);
+  }
+  const data = await r.json();
+  return data && data.length > 0 ? data[0].conteudo : null;
 }
 
 async function supaSet(id, conteudo) {
-  try {
-    await fetch(`${SUPA_URL}/rest/v1/dados`, {
-      method: 'POST',
-      headers: {
-        'apikey': SUPA_KEY,
-        'Authorization': `Bearer ${SUPA_KEY}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'resolution=merge-duplicates'
-      },
-      body: JSON.stringify({ id, conteudo, atualizado_em: new Date().toISOString() })
-    });
-  } catch(e) { console.warn('Supabase sync error:', e); }
+  const r = await fetch(`${SUPA_URL}/rest/v1/dados`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPA_KEY,
+      'Authorization': `Bearer ${SUPA_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=merge-duplicates,return=minimal'
+    },
+    body: JSON.stringify({ id, conteudo, atualizado_em: new Date().toISOString() })
+  });
+  if (!r.ok) {
+    const msg = await r.text().catch(()=> '');
+    throw new Error(`Nuvem SET ${id}: HTTP ${r.status}${msg ? ' - '+msg.slice(0,180) : ''}`);
+  }
+  return true;
 }
 
 function orcDadosParaNuvem(){
@@ -3735,27 +3741,62 @@ let _orcCloudTimer = null;
 function orcSalvarNuvemDebounced(){
   if (window.location.protocol === 'file:') return;
   clearTimeout(_orcCloudTimer);
-  _orcCloudTimer = setTimeout(()=>{ salvarNuvem().catch(()=>{}); }, 700);
+  _orcCloudTimer = setTimeout(()=>{ salvarNuvem().catch(err=>{ console.error('Falha ao salvar na nuvem:',err); const b=document.getElementById('syncIndicator'); if(b) b.textContent='❌ Nuvem'; }); }, 700);
 }
 
 async function salvarNuvem() {
-  if (window.location.protocol === 'file:') return;
+  if (window.location.protocol === 'file:') return false;
   const od = orcDadosParaNuvem();
+
+  // Dados principais.
   await supaSet('nfs', nfs);
   await supaSet('vendas', vendas);
   await supaSet('defeitos', defeitos);
   await supaSet('rascunho', importVendas);
-  await supaSet('orc_history', od.hist);
+
+  // HISTÓRICO DE ORÇAMENTOS: nunca sobrescreve a nuvem cegamente.
+  // Primeiro lê o que já existe, une com o que está neste computador e só então grava.
+  const histCloudNow = await supaGet('orc_history');
+  const histMergeNow = orcMergeHistorico(Array.isArray(od.hist)?od.hist:[], Array.isArray(histCloudNow)?histCloudNow:[]);
+  orcHistory = histMergeNow;
+  localStorage.setItem('orc_history', JSON.stringify(histMergeNow));
+  await supaSet('orc_history', histMergeNow);
+
+  const maxHistNumNow = histMergeNow.length ? Math.max(...histMergeNow.map(h=>parseInt(h.num,10)||0)) + 1 : 1;
+  orcNum = Math.max(Number(od.num||1), maxHistNumNow);
+  localStorage.setItem('orc_num', String(orcNum));
+  await supaSet('orc_num', orcNum);
+
+  // Painel mensal continua usando a rotina de merge já existente na carga.
   await supaSet('orc_pm', od.pm);
-  await supaSet('orc_num', od.num);
-  try {
-    const cots = JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores') || localStorage.getItem('cotacoesFornecedor') || '[]');
-    if (Array.isArray(cots)) await supaSet('cotacoesFornecedor', cots);
-  } catch(e) {}
-  try {
-    const of = JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios') || '[]');
-    if (Array.isArray(of)) await supaSet('baire_orcamentos_funcionarios', of);
-  } catch(e) {}
+
+  // Cotações de fornecedores: preserva registros dos outros computadores por ID.
+  const cotsLocal = JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores') || localStorage.getItem('cotacoesFornecedor') || '[]');
+  const cotsCloud = await supaGet('cotacoesFornecedor');
+  const mapCotNow = new Map();
+  const addCotNow = c => {
+    if(!c || typeof c!=='object') return;
+    const k=String(c.id || ((c.data||'')+'|'+JSON.stringify(c.itens||[]).slice(0,180)));
+    const antigo=mapCotNow.get(k);
+    const da=new Date(c.atualizadoEm||c.data||0).getTime()||0;
+    const db=new Date(antigo?.atualizadoEm||antigo?.data||0).getTime()||0;
+    if(!antigo || da>=db) mapCotNow.set(k,c);
+  };
+  (Array.isArray(cotsCloud)?cotsCloud:[]).forEach(addCotNow);
+  (Array.isArray(cotsLocal)?cotsLocal:[]).forEach(addCotNow);
+  const cotsMergeNow=Array.from(mapCotNow.values()).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
+  localStorage.setItem('baire_cotacoes_fornecedores',JSON.stringify(cotsMergeNow));
+  localStorage.setItem('cotacoesFornecedor',JSON.stringify(cotsMergeNow));
+  await supaSet('cotacoesFornecedor',cotsMergeNow);
+
+  // COTAÇÃO VENDAS/APROVAÇÕES: também faz merge antes de gravar para impedir
+  // que Verinha, Karol ou outro computador apague silenciosamente o histórico do outro.
+  const ofLocal = JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios') || '[]');
+  const ofCloud = await supaGet('baire_orcamentos_funcionarios');
+  const ofMergeNow = baireMergeOrcamentosVendedores(Array.isArray(ofLocal)?ofLocal:[], Array.isArray(ofCloud)?ofCloud:[]);
+  localStorage.setItem('baire_orcamentos_funcionarios', JSON.stringify(ofMergeNow));
+  await supaSet('baire_orcamentos_funcionarios', ofMergeNow);
+  return true;
 }
 
 async function sincronizarManual() {
@@ -9945,7 +9986,10 @@ function salvarOrcamentoTopoSeguro(){
     if(isAdmin()) return;
     document.querySelectorAll('header button, header label').forEach(el=>{
       const t=el.textContent.toLowerCase();
-      if(t.includes('backup')||t.includes('restaurar')||t.includes('subir')) el.classList.add('perm-hidden');
+      // Backup é somente leitura/exportação e fica disponível para todos os usuários.
+      // Restaurar/Subir continuam restritos ao ADMIN para evitar sobrescrita acidental.
+      if(t.includes('restaurar')||t.includes('subir')) el.classList.add('perm-hidden');
+      if(t.includes('backup')) el.classList.remove('perm-hidden');
     });
   }
   function aplicarPermissoes(){
