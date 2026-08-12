@@ -4,6 +4,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Baire Controle Estoque 2026</title>
+<!-- CORREÇÃO 2026-08-12: merge real NFs/vendas entre computadores + sucesso de nuvem validado -->
 <!-- CORREÇÃO 2026-08-11: sincronização robusta, merge antes de gravar, erro real de nuvem e Backup liberado para usuários -->
 <!-- CORREÇÃO 2026-07-10: histórico de cotações ordenado por data ISO; julho volta a aparecer no topo e pode ser editado -->
 <!-- AJUSTE 2026-06-04: Consulta de Preços por produto em matriz + Mapa de Compra separado -->
@@ -3677,6 +3678,52 @@ async function supaSet(id, conteudo) {
   return true;
 }
 
+
+// ============================================================
+// BAIRE — MERGE REAL DE DADOS PRINCIPAIS (12/08/2026)
+// Une registros de todos os computadores antes de gravar na nuvem.
+// ============================================================
+function baireObjScore(o){
+  if(!o || typeof o !== 'object') return 0;
+  let score=0;
+  Object.keys(o).forEach(k=>{
+    const v=o[k];
+    if(v!==null && v!==undefined && v!=='' && !(Array.isArray(v)&&v.length===0)) score++;
+    if(Array.isArray(v)) score += v.length * 0.01;
+  });
+  return score;
+}
+function baireMergeByStableKey(cloudArr, localArr, keyFn){
+  const map=new Map();
+  const add=(x,preferLocal=false)=>{
+    if(!x || typeof x!=='object') return;
+    const k=String(keyFn(x)||'');
+    if(!k) return;
+    const old=map.get(k);
+    if(!old){ map.set(k,x); return; }
+    const so=baireObjScore(old), sx=baireObjScore(x);
+    // Mais completo vence; em empate, o local vence para permitir que uma edição feita
+    // neste computador seja publicada sem apagar registros exclusivos dos demais.
+    if(sx>so || (preferLocal && sx>=so)) map.set(k,x);
+  };
+  (Array.isArray(cloudArr)?cloudArr:[]).forEach(x=>add(x,false));
+  (Array.isArray(localArr)?localArr:[]).forEach(x=>add(x,true));
+  return Array.from(map.values());
+}
+function baireVendaKey(v){
+  if(v && v.pedido!==undefined && v.pedido!==null && String(v.pedido).trim()!=='') return 'PED|'+String(v.pedido).trim();
+  if(v && v.id!==undefined && v.id!==null) return 'ID|'+String(v.id);
+  return 'FALL|'+[v?.data||'',v?.cliente||'',JSON.stringify(v?.itens||[])].join('|');
+}
+function baireNfKey(n){
+  // Não usa apenas id: ids podem colidir porque cada computador gera ids localmente.
+  return 'NF|'+[n?.nf||'',n?.ped||'',n?.ref||'',n?.data||'',n?.produto||'',n?.fornecedor||'',n?.marca||''].map(x=>String(x).trim().toUpperCase()).join('|');
+}
+function baireDefeitoKey(d){
+  if(d && d.id!==undefined && d.id!==null) return 'ID|'+String(d.id);
+  return 'FALL|'+[d?.data||'',d?.produto||'',d?.cliente||'',d?.pedido||'',d?.descricao||d?.obs||''].map(x=>String(x).trim().toUpperCase()).join('|');
+}
+
 function orcDadosParaNuvem(){
   let hist = [];
   let pm = {};
@@ -3748,7 +3795,17 @@ async function salvarNuvem() {
   if (window.location.protocol === 'file:') return false;
   const od = orcDadosParaNuvem();
 
-  // Dados principais.
+  // DADOS PRINCIPAIS: lê a nuvem, une registro por registro e só então grava.
+  // Assim um computador nunca apaga silenciosamente os registros exclusivos de outro.
+  const [nfsCloudNow, vendasCloudNow, defeitosCloudNow] = await Promise.all([
+    supaGet('nfs').catch(()=>[]), supaGet('vendas').catch(()=>[]), supaGet('defeitos').catch(()=>[])
+  ]);
+  nfs = baireMergeByStableKey(nfsCloudNow, nfs, baireNfKey);
+  vendas = baireMergeByStableKey(vendasCloudNow, vendas, baireVendaKey);
+  defeitos = baireMergeByStableKey(defeitosCloudNow, defeitos, baireDefeitoKey);
+  localStorage.setItem('toner_nfs', JSON.stringify(nfs));
+  localStorage.setItem('toner_vendas', JSON.stringify(vendas));
+  localStorage.setItem('toner_defeitos', JSON.stringify(defeitos));
   await supaSet('nfs', nfs);
   await supaSet('vendas', vendas);
   await supaSet('defeitos', defeitos);
@@ -3882,44 +3939,18 @@ async function carregarNuvem() {
     try { orcPmLocal = JSON.parse(localStorage.getItem('orc_pm') || '{}'); } catch(e) { orcPmLocal = {}; }
     try { orcNumLocal = Number(localStorage.getItem('orc_num') || 1) || 1; } catch(e) { orcNumLocal = 1; }
 
-    // Usa a versão com MAIS registros (local ou nuvem), evitando apagar NFs recém cadastradas
-    if (nfsData && nfsData.length > 0) {
-      if (!nfsLocal || nfsData.length >= nfsLocal.length) {
-        nfs = nfsData;
-      } else {
-        nfs = nfsLocal; // local tem mais — mantém e envia pra nuvem
-        await supaSet('nfs', nfs);
-      }
-    } else if (nfsLocal && nfsLocal.length > 0) {
-      nfs = nfsLocal;
-      await supaSet('nfs', nfs); // sobe para nuvem
-    }
+    // MERGE REAL: junta local + nuvem por identidade estável, em vez de escolher
+    // simplesmente o lado que tiver maior quantidade de registros.
+    nfs = baireMergeByStableKey(Array.isArray(nfsData)?nfsData:[], Array.isArray(nfsLocal)?nfsLocal:[], baireNfKey);
+    vendas = baireMergeByStableKey(Array.isArray(vendasData)?vendasData:[], Array.isArray(vendasLocal)?vendasLocal:[], baireVendaKey);
+    const defeitosBaseLocal = Array.isArray(defeitosLocal)?defeitosLocal:(Array.isArray(defeitos)?defeitos:[]);
+    defeitos = baireMergeByStableKey(Array.isArray(defeitosData)?defeitosData:[], defeitosBaseLocal, baireDefeitoKey);
 
-    if (vendasData && vendasData.length > 0) {
-      if (!vendasLocal || vendasData.length >= vendasLocal.length) {
-        vendas = vendasData;
-      } else {
-        vendas = vendasLocal; // local tem mais — mantém e envia pra nuvem
-        await supaSet('vendas', vendas);
-      }
-    } else if (vendasLocal && vendasLocal.length > 0) {
-      vendas = vendasLocal;
-      await supaSet('vendas', vendas);
-    }
-
-    if (defeitosData && Array.isArray(defeitosData) && defeitosData.length > 0) {
-      // Só sobrescreve se nuvem tem mais dados que local
-      const localCount = Array.isArray(defeitos) ? defeitos.length : 0;
-      if (defeitosData.length >= localCount) {
-        defeitos = defeitosData;
-      }
-    } else if (Array.isArray(defeitos) && defeitos.length > 0) {
-      // Envia local para nuvem
-      await supaSet('defeitos', defeitos).catch(()=>{});
-    } else if (defeitosLocal && Array.isArray(defeitosLocal) && defeitosLocal.length > 0) {
-      defeitos = defeitosLocal;
-      await supaSet('defeitos', defeitos).catch(()=>{});
-    }
+    // Publica imediatamente o conjunto consolidado para que o próximo computador
+    // receba a mesma base.
+    await supaSet('nfs', nfs);
+    await supaSet('vendas', vendas);
+    await supaSet('defeitos', defeitos);
 
     // Só carrega rascunho se não foi limpo intencionalmente
     const rascunhoFoiLimpo = localStorage.getItem('toner_rascunho_limpo') === '1';
@@ -10412,9 +10443,11 @@ function salvarOrcamentoTopoSeguro(){
   window.sincronizarManual=async function(){
     let r;
     if(typeof oldSync==='function') r=await oldSync.apply(this, arguments);
-    await baixarModulosNovos(false).catch(()=>{});
-    await subirModulosNovos(false).catch(()=>{});
-    try{ const b=document.getElementById('syncIndicator'); if(b){ b.textContent='✅ Sincronizado!'; setTimeout(()=>b.textContent='☁️ Nuvem',1800); } }catch(e){}
+    if(r !== false){
+      await baixarModulosNovos(false);
+      await subirModulosNovos(false);
+      try{ const b=document.getElementById('syncIndicator'); if(b){ b.textContent='✅ Sincronizado!'; setTimeout(()=>b.textContent='☁️ Nuvem',1800); } }catch(e){}
+    }
     return r;
   };
 
