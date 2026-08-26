@@ -3634,7 +3634,11 @@ function baireHojeLocalISO(){
       </div>
       <div class="form-group">
         <label>Marca</label>
-        <input type="text" id="edit_marca">
+        <select id="edit_marca" style="width:100%" onchange="baireEditMarcaChange(this)">
+          <option value="">SELECIONE A MARCA</option>
+        </select>
+        <input type="text" id="edit_marca_nova" placeholder="Digite a nova marca" autocomplete="off"
+          style="display:none;width:100%;margin-top:7px;text-transform:uppercase">
       </div>
       <div class="form-group">
         <label>Qtd Comprada</label>
@@ -3787,9 +3791,95 @@ function baireVendaKey(v){
   if(v && v.pedido!==undefined && v.pedido!==null && String(v.pedido).trim()!=='') return 'PED|'+String(v.pedido).trim();
   return 'FALL|'+[v?.data||'',v?.cliente||'',JSON.stringify(v?.itens||[])].join('|');
 }
-function baireNfKey(n){
-  // Não usa apenas id: ids podem colidir porque cada computador gera ids localmente.
-  return 'NF|'+[n?.nf||'',n?.ped||'',n?.ref||'',n?.data||'',n?.produto||'',n?.fornecedor||'',n?.marca||''].map(x=>String(x).trim().toUpperCase()).join('|');
+const BAIRE_NFS_EXCLUIDAS_V2='baire_nfs_excluidas_v2';
+
+function baireNfLegacyLogicalKey(n){
+  // Chave de migração para lotes antigos. Marca/fornecedor/valor NÃO participam:
+  // podem ser corrigidos sem transformar a edição em um novo lote.
+  return 'NFLEG|'+[n?.id??'',n?.nf||'',n?.ped||'',n?.ref||'',n?.data||'',n?.produto||'']
+    .map(x=>String(x).trim().toUpperCase()).join('|');
+}
+function baireEnsureNfUid(n){
+  if(!n || typeof n!=='object') return '';
+  if(!n._uid) n._uid=baireNfLegacyLogicalKey(n);
+  return String(n._uid);
+}
+function baireNfKey(n){ return baireEnsureNfUid(n); }
+
+function baireNfsTombs(){
+  try{
+    const a=JSON.parse(localStorage.getItem(BAIRE_NFS_EXCLUIDAS_V2)||'[]');
+    return Array.isArray(a)?a.map(String):[];
+  }catch(e){return [];}
+}
+function baireSaveNfsTombs(arr){
+  const a=[...new Set((Array.isArray(arr)?arr:[]).map(String).filter(Boolean))];
+  localStorage.setItem(BAIRE_NFS_EXCLUIDAS_V2,JSON.stringify(a));
+  return a;
+}
+function baireFiltrarTombsNfs(arr,tombs){
+  const set=new Set((Array.isArray(tombs)?tombs:[]).map(String));
+  return (Array.isArray(arr)?arr:[]).filter(n=>!set.has(baireEnsureNfUid(n)));
+}
+function baireNfEhFantasma(n){
+  return !String(n?.nf||'').trim() && !String(n?.data||'').trim() &&
+         !String(n?.ped||'').trim() && !String(n?.ref||'').trim() &&
+         (Number(n?.qtd)||0)===0 && (Number(n?.estoque)||0)===0 && (Number(n?.valor)||0)===0;
+}
+function baireNormalizarNfs(arr){
+  let base=(Array.isArray(arr)?arr:[]).filter(n=>n && typeof n==='object');
+
+  // Remove registros vazios criados por bugs antigos quando existe um registro real
+  // com o mesmo id + produto.
+  base=base.filter(n=>{
+    if(!baireNfEhFantasma(n)) return true;
+    return !base.some(o=>o!==n &&
+      String(o?.id??'')===String(n?.id??'') &&
+      String(o?.produto||'').trim().toUpperCase()===String(n?.produto||'').trim().toUpperCase() &&
+      !baireNfEhFantasma(o));
+  });
+
+  const map=new Map();
+  base.forEach(n=>{
+    const k=baireEnsureNfUid(n);
+    const old=map.get(k);
+    if(!old){ map.set(k,n); return; }
+    const tn=new Date(n.atualizadoEm||0).getTime()||0;
+    const to=new Date(old.atualizadoEm||0).getTime()||0;
+    const sn=baireObjScore(n), so=baireObjScore(old);
+    // A edição mais recente vence; sem timestamp, a versão mais completa vence.
+    if(tn>to || (tn===to && sn>=so)) map.set(k,n);
+  });
+  return Array.from(map.values());
+}
+
+// Repara apenas o erro provocado pela versão de teste anterior.
+// A chave antiga "baire_nfs_excluidas" nunca existia antes desse teste.
+function baireRepararExclusaoBugTesteAnterior(){
+  let tombsAntigos=[];
+  try{ tombsAntigos=JSON.parse(localStorage.getItem('baire_nfs_excluidas')||'[]'); }catch(e){tombsAntigos=[];}
+  if(!Array.isArray(tombsAntigos) || !tombsAntigos.length) return;
+
+  try{
+    const atuais=Array.isArray(nfs)?nfs:[];
+    const iniciais=typeof INITIAL_NFS!=='undefined' && Array.isArray(INITIAL_NFS)?INITIAL_NFS:[];
+    tombsAntigos.forEach(k=>{
+      const candidatos=iniciais.filter(x=>baireNfLegacyLogicalKey(x)===String(k));
+      if(!candidatos.length) return;
+      // Recupera a versão mais completa do backup embutido, somente se desapareceu.
+      const existe=atuais.some(x=>baireNfLegacyLogicalKey(x)===String(k));
+      if(!existe){
+        let best=candidatos[0];
+        candidatos.slice(1).forEach(c=>{ if(baireObjScore(c)>=baireObjScore(best)) best=c; });
+        atuais.push({...best,_uid:baireNfLegacyLogicalKey(best)});
+      }
+    });
+    nfs=baireNormalizarNfs(atuais);
+    localStorage.setItem('toner_nfs',JSON.stringify(nfs));
+  }catch(e){ console.warn('Reparo de NF:',e); }
+
+  // Desativa definitivamente o marcador defeituoso da versão anterior.
+  localStorage.removeItem('baire_nfs_excluidas');
 }
 function baireDefeitoKey(d){
   if(d && d.id!==undefined && d.id!==null) return 'ID|'+String(d.id);
@@ -3869,15 +3959,20 @@ async function salvarNuvem() {
 
   // DADOS PRINCIPAIS: lê a nuvem, une registro por registro e só então grava.
   // Assim um computador nunca apaga silenciosamente os registros exclusivos de outro.
-  const [nfsCloudNow, vendasCloudNow, defeitosCloudNow] = await Promise.all([
-    supaGet('nfs').catch(()=>[]), supaGet('vendas').catch(()=>[]), supaGet('defeitos').catch(()=>[])
+  const [nfsCloudNow, vendasCloudNow, defeitosCloudNow, nfsTombsCloudNow] = await Promise.all([
+    supaGet('nfs').catch(()=>[]), supaGet('vendas').catch(()=>[]), supaGet('defeitos').catch(()=>[]),
+    supaGet('nfs_excluidas_v2').catch(()=>[])
   ]);
-  nfs = baireMergeByStableKey(nfsCloudNow, nfs, baireNfKey);
+  const tombsNow=baireSaveNfsTombs([...baireNfsTombs(),...(Array.isArray(nfsTombsCloudNow)?nfsTombsCloudNow:[])]);
+  const cloudNfsNow=baireFiltrarTombsNfs(baireNormalizarNfs(nfsCloudNow),tombsNow);
+  const localNfsNow=baireFiltrarTombsNfs(baireNormalizarNfs(nfs),tombsNow);
+  nfs = baireNormalizarNfs(baireMergeByStableKey(cloudNfsNow, localNfsNow, baireNfKey));
   vendas = baireMergeByStableKey(vendasCloudNow, vendas, baireVendaKey);
   defeitos = baireMergeByStableKey(defeitosCloudNow, defeitos, baireDefeitoKey);
   localStorage.setItem('toner_nfs', JSON.stringify(nfs));
   localStorage.setItem('toner_vendas', JSON.stringify(vendas));
   localStorage.setItem('toner_defeitos', JSON.stringify(defeitos));
+  await supaSet('nfs_excluidas_v2', tombsNow);
   await supaSet('nfs', nfs);
   await supaSet('vendas', vendas);
   await supaSet('defeitos', defeitos);
@@ -3982,10 +4077,11 @@ async function carregarNuvem() {
   try {
     // Timeout de 5 segundos para não travar o sistema
     const timeout = new Promise((_,reject) => setTimeout(()=>reject(new Error('timeout')), 5000));
-    const [nfsData, vendasData, defeitosData, rascunhoData, produtosData, orcHistData, orcPmData, orcNumData, cotacoesData, orcFuncData] = await Promise.race([
+    const [nfsData, vendasData, defeitosData, rascunhoData, produtosData, orcHistData, orcPmData, orcNumData, cotacoesData, orcFuncData, nfsTombsData] = await Promise.race([
       Promise.all([
         supaGet('nfs'), supaGet('vendas'), supaGet('defeitos'), supaGet('rascunho'), supaGet('produtos_ca'),
-        supaGet('orc_history'), supaGet('orc_pm'), supaGet('orc_num'), supaGet('cotacoesFornecedor'), supaGet('baire_orcamentos_funcionarios')
+        supaGet('orc_history'), supaGet('orc_pm'), supaGet('orc_num'), supaGet('cotacoesFornecedor'), supaGet('baire_orcamentos_funcionarios'),
+        supaGet('nfs_excluidas_v2').catch(()=>[])
       ]),
       timeout.then(()=>{ throw new Error('timeout'); })
     ]);
@@ -4014,13 +4110,17 @@ async function carregarNuvem() {
 
     // MERGE REAL: junta local + nuvem por identidade estável, em vez de escolher
     // simplesmente o lado que tiver maior quantidade de registros.
-    nfs = baireMergeByStableKey(Array.isArray(nfsData)?nfsData:[], Array.isArray(nfsLocal)?nfsLocal:[], baireNfKey);
+    const tombsCarga=baireSaveNfsTombs([...baireNfsTombs(),...(Array.isArray(nfsTombsData)?nfsTombsData:[])]);
+    const cloudNfsCarga=baireFiltrarTombsNfs(baireNormalizarNfs(Array.isArray(nfsData)?nfsData:[]),tombsCarga);
+    const localNfsCarga=baireFiltrarTombsNfs(baireNormalizarNfs(Array.isArray(nfsLocal)?nfsLocal:[]),tombsCarga);
+    nfs = baireNormalizarNfs(baireMergeByStableKey(cloudNfsCarga,localNfsCarga,baireNfKey));
     vendas = baireMergeByStableKey(Array.isArray(vendasData)?vendasData:[], Array.isArray(vendasLocal)?vendasLocal:[], baireVendaKey);
     const defeitosBaseLocal = Array.isArray(defeitosLocal)?defeitosLocal:(Array.isArray(defeitos)?defeitos:[]);
     defeitos = baireMergeByStableKey(Array.isArray(defeitosData)?defeitosData:[], defeitosBaseLocal, baireDefeitoKey);
 
     // Publica imediatamente o conjunto consolidado para que o próximo computador
     // receba a mesma base.
+    await supaSet('nfs_excluidas_v2', tombsCarga);
     await supaSet('nfs', nfs);
     await supaSet('vendas', vendas);
     await supaSet('defeitos', defeitos);
@@ -4140,6 +4240,7 @@ let vendas = JSON.parse(localStorage.getItem('toner_vendas') || 'null') || INITI
 let itemCount = 0;
 
 function salvar() {
+  nfs=baireFiltrarTombsNfs(baireNormalizarNfs(nfs),baireNfsTombs());
   localStorage.setItem('toner_nfs', JSON.stringify(nfs));
   localStorage.setItem('toner_vendas', JSON.stringify(vendas));
   // Sync to cloud in background
@@ -4168,6 +4269,13 @@ function fmtData(d) {
 function produtosUnicos() { return [...new Set(nfs.map(n=>n.produto))].sort(); }
 function fornecedoresUnicos() { return [...new Set(nfs.map(n=>n.fornecedor).filter(Boolean))].sort(); }
 function marcasUnicas() { return [...new Set(nfs.map(n=>n.marca).filter(Boolean))].sort(); }
+
+// Reparo/migração antes da primeira renderização do estoque.
+try{
+  baireRepararExclusaoBugTesteAnterior();
+  nfs=baireFiltrarTombsNfs(baireNormalizarNfs(nfs),baireNfsTombs());
+  localStorage.setItem('toner_nfs',JSON.stringify(nfs));
+}catch(e){console.warn('Migração de NFs:',e);}
 
 // ============================================================
 // ESTOQUE
@@ -4204,8 +4312,8 @@ function renderEstoque() {
       <td style="text-align:center;font-size:12px;color:#555">${r.valor ? "R$ "+r.valor.toLocaleString("pt-BR",{minimumFractionDigits:2}) : "-"}</td>
       <td style="text-align:center"><strong class="${eClass}">${r.estoque}</strong></td>
       <td style="white-space:nowrap">
-        <button class="btn-secondary btn-sm" onclick="editEstoque(${r.id})" title="Editar">✏️</button>
-        <button class="btn-danger btn-sm" style="margin-left:4px" onclick="excluirLote(${r.id})" title="Excluir">🗑️</button>
+        <button class="btn-secondary btn-sm" onclick="editEstoqueUid('${encodeURIComponent(baireEnsureNfUid(r))}')" title="Editar">✏️</button>
+        <button class="btn-danger btn-sm" style="margin-left:4px" onclick="excluirLoteUid('${encodeURIComponent(baireEnsureNfUid(r))}')" title="Excluir">🗑️</button>
       </td>
     </tr>`;
   }).join('');
@@ -4250,52 +4358,114 @@ function populaFiltros() {
 }
 
 
-function excluirLote(id) {
-  const lote = nfs.find(n => n.id === id);
-  if (!lote) return;
-  if (!confirm(`Excluir lote:\n${lote.produto} - NF ${lote.nf}\nFornecedor: ${lote.fornecedor}\n\nAtenção: só exclua se o lote não foi vendido!`)) return;
-  nfs = nfs.filter(n => n.id !== id);
-  salvar();
-  populaFiltros();
-  renderEstoque();
-  renderMetrics();
+async function excluirLoteUid(uidEnc) {
+  const uid=decodeURIComponent(String(uidEnc||''));
+  const lote=nfs.find(n=>baireEnsureNfUid(n)===uid);
+  if(!lote) return;
+  if(!confirm(`Excluir lote:\n${lote.produto} - NF ${lote.nf}\nFornecedor: ${lote.fornecedor}\n\nAtenção: só exclua se o lote não foi vendido!`)) return;
+
+  const tombs=baireSaveNfsTombs([...baireNfsTombs(),uid]);
+  nfs=baireFiltrarTombsNfs(nfs,tombs);
+  localStorage.setItem('toner_nfs',JSON.stringify(nfs));
+  populaFiltros(); renderEstoque(); renderMetrics();
+
+  if(window.location.protocol!=='file:'){
+    try{
+      const cloudT=await supaGet('nfs_excluidas_v2').catch(()=>[]);
+      const todos=baireSaveNfsTombs([...tombs,...(Array.isArray(cloudT)?cloudT:[])]);
+      await supaSet('nfs_excluidas_v2',todos);
+      const cloudN=await supaGet('nfs').catch(()=>[]);
+      const cleanCloud=baireFiltrarTombsNfs(baireNormalizarNfs(cloudN),todos);
+      nfs=baireNormalizarNfs(baireMergeByStableKey(cleanCloud,nfs,baireNfKey));
+      localStorage.setItem('toner_nfs',JSON.stringify(nfs));
+      await supaSet('nfs',nfs);
+    }catch(e){console.warn('Falha ao publicar exclusão do lote:',e);}
+  }
 }
 
-function editEstoque(id) {
+window.baireEditMarcaChange=function(sel){
+  const inp=document.getElementById('edit_marca_nova');
+  if(!inp) return;
+  const nova=sel && sel.value==='__NOVA__';
+  inp.style.display=nova?'block':'none';
+  if(nova){ inp.value=''; setTimeout(()=>inp.focus(),50); }
+};
+
+function editEstoqueUid(uidEnc) {
   if (!verificarSenha('editar este lote de estoque')) return;
-  const r = nfs.find(n=>n.id===id);
-  if (!r) return;
+  const uid=decodeURIComponent(String(uidEnc||''));
+  const r=nfs.find(n=>baireEnsureNfUid(n)===uid);
+  if(!r) return;
   document.getElementById('edit_produto').value = r.produto || '';
   document.getElementById('edit_data').value = r.data || '';
   document.getElementById('edit_nf').value = r.nf || '';
   document.getElementById('edit_ped').value = r.ped || '';
   document.getElementById('edit_ref').value = r.ref || '';
   document.getElementById('edit_fornecedor').value = r.fornecedor || '';
-  document.getElementById('edit_marca').value = r.marca || '';
+
+  const marcaSel=document.getElementById('edit_marca');
+  if(marcaSel){
+    const atual=String(r.marca||'').trim();
+    const marcas=[...new Set(marcasUnicas().map(x=>String(x||'').trim()).filter(Boolean))];
+    if(atual && !marcas.some(m=>m.toUpperCase()===atual.toUpperCase())) marcas.push(atual);
+    marcas.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    marcaSel.innerHTML='<option value="">SELECIONE A MARCA</option>'+
+      marcas.map(m=>`<option value="${String(m).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${String(m).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`).join('')+
+      '<option value="__NOVA__">➕ NOVA MARCA</option>';
+    marcaSel.value=atual;
+    const novaInp=document.getElementById('edit_marca_nova');
+    if(novaInp){ novaInp.value=''; novaInp.style.display='none'; }
+  }
+
   document.getElementById('edit_qtd').value = r.qtd;
   document.getElementById('edit_estoque').value = r.estoque;
   document.getElementById('edit_valor').value = r.valor || '';
   document.getElementById('edit_link').value = r.link || '';
-  document.getElementById('edit_idx').value = id;
+  document.getElementById('edit_idx').value = uid;
   openModal('modalEdit');
 }
+
+// Compatibilidade com chamadas antigas ainda existentes.
+function editEstoque(id){
+  const r=nfs.find(n=>String(n.id)===String(id));
+  if(r) editEstoqueUid(encodeURIComponent(baireEnsureNfUid(r)));
+}
+function excluirLote(id){
+  const r=nfs.find(n=>String(n.id)===String(id));
+  if(r) excluirLoteUid(encodeURIComponent(baireEnsureNfUid(r)));
+}
+
 function salvarEdit() {
-  const id = parseInt(document.getElementById('edit_idx').value);
-  const r = nfs.find(n=>n.id===id);
+  const uid=String(document.getElementById('edit_idx').value||'');
+  const r=nfs.find(n=>baireEnsureNfUid(n)===uid);
   if (r) {
+    // UID fica imutável mesmo que marca/fornecedor/produto sejam corrigidos.
+    const uidFixo=baireEnsureNfUid(r);
     r.produto = document.getElementById('edit_produto').value.trim() || r.produto;
     r.data = document.getElementById('edit_data').value;
     r.nf = document.getElementById('edit_nf').value.trim();
     r.ped = document.getElementById('edit_ped').value.trim();
     r.ref = document.getElementById('edit_ref').value.trim();
     r.fornecedor = document.getElementById('edit_fornecedor').value.trim();
-    r.marca = document.getElementById('edit_marca').value.trim();
+    const marcaSelect=document.getElementById('edit_marca');
+    let marcaFinal=String(marcaSelect?.value||'').trim();
+    if(marcaFinal==='__NOVA__'){
+      marcaFinal=String(document.getElementById('edit_marca_nova')?.value||'').trim().toUpperCase();
+      if(!marcaFinal){ alert('Digite o nome da nova marca.'); return; }
+    }
+    r.marca = marcaFinal.toUpperCase();
     r.qtd = parseInt(document.getElementById('edit_qtd').value) || 0;
     r.estoque = parseInt(document.getElementById('edit_estoque').value) || 0;
     r.valor = parseFloat(document.getElementById('edit_valor')?.value) || 0;
     r.link = document.getElementById('edit_link')?.value.trim() || '';
+    r._uid=uidFixo;
+    r.atualizadoEm=new Date().toISOString();
+
+    nfs=baireFiltrarTombsNfs(baireNormalizarNfs(nfs),baireNfsTombs());
+    localStorage.setItem('toner_nfs',JSON.stringify(nfs));
     closeModal('modalEdit');
-    salvar(); renderEstoque(); renderMetrics();
+    salvar(); populaFiltros(); renderEstoque(); renderMetrics();
+
     document.querySelectorAll('[id^="imp_lotecount_"]').forEach(el => {
       const m = el.id.match(/imp_lotecount_(\d+)_(\d+)/);
       if (m) {
@@ -4386,7 +4556,9 @@ function salvarNF() {
   let maxId = Math.max(...nfs.map(n=>n.id), 0);
   itens.forEach(item => {
     maxId++;
-    nfs.push({id:maxId, data, ped, ref, nf:nfNum, produto:item.produto, fornecedor:forn, marca:item.marca, qtd:item.qtd, estoque:item.qtd, valor:item.valor||0, link});
+    const novoLote={id:maxId, data, ped, ref, nf:nfNum, produto:item.produto, fornecedor:forn, marca:item.marca, qtd:item.qtd, estoque:item.qtd, valor:item.valor||0, link, criadoEm:new Date().toISOString()};
+    novoLote._uid='NFNEW|'+Date.now()+'|'+maxId+'|'+Math.random().toString(36).slice(2,9);
+    nfs.push(novoLote);
     // Adiciona ao catálogo de produtos se não existir
     if (!PRODUTOS_CA.some(p => p.sku === item.produto)) {
       PRODUTOS_CA.push({sku: item.produto, nome: item.produto});
@@ -8032,9 +8204,18 @@ function orcAC(i){
 function orcSI(i,sku){
   const inp=oEl('os'+i);if(inp)inp.value=sku;
   const l=oEl('orac'+i);if(l)l.classList.remove('open');
-  let v=ORC_CAT[sku]||0;
-  if(typeof nfs!=='undefined'){const ls=nfs.filter(n=>n.produto===sku&&(n.valor||0)>0).sort((a,b)=>b.data.localeCompare(a.data));if(ls.length)v=ls[0].valor;}
-  const ci=oEl('oc'+i);if(ci)ci.value=v>0?v.toFixed(2):'';
+
+  // Na GESTÃO, ao escolher o item do autocomplete, fixa no custo unitário
+  // exatamente o preço exibido na própria sugestão. Depois o usuário pode
+  // alterar manualmente esse custo, se necessário.
+  const v=Number(ORC_CAT[sku]||0)||0;
+  const ci=oEl('oc'+i);
+  if(ci){
+    ci.value=v>0?v.toFixed(2):'';
+    ci.dataset.baireCustoSelecionado=v>0?'1':'';
+    ci.style.background=v>0?'#ecfdf5':'#fff';
+    ci.title=v>0?'Custo carregado da seleção do produto; pode ser alterado manualmente.':'Preencher custo manualmente';
+  }
   orcCalc();
 }
 
@@ -9782,7 +9963,7 @@ function salvarOrcamentoTopoSeguro(){
   function fmtData(d){ if(!d) return '-'; const p=String(d).split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : d; }
   function moeda(n){ n=Number(n)||0; return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
   function num(v){ if(v===null||v===undefined) return 0; if(typeof v==='number') return isFinite(v)?v:0; let s=String(v).trim().replace(/R\$|\s/g,''); if(!s) return 0; if(s.includes(',')&&s.includes('.')) s=s.replace(/\./g,'').replace(',', '.'); else s=s.replace(',', '.'); const n=Number(s); return isFinite(n)?n:0; }
-  function diasEntre(iso){ if(!iso) return 9999; const a=new Date(iso+'T00:00:00'); const b=new Date(); b.setHours(0,0,0,0); return Math.floor((b-a)/(1000*60*60*24)); }
+  function diasEntre(iso){ if(!iso) return 9999; const d=String(iso).slice(0,10); const a=new Date(d+'T00:00:00'); const b=new Date(); b.setHours(0,0,0,0); return Math.floor((b-a)/(1000*60*60*24)); }
   function cotacoes(){ try{ if(typeof window.baireCotacoes==='function') return window.baireCotacoes(); }catch(e){} try{return JSON.parse(localStorage.getItem('baire_cotacoes_fornecedores')||localStorage.getItem('cotacoesFornecedor')||'[]')||[];}catch(e){return [];} }
   function produtos(){ try{ if(typeof window.baireListaProdutosCatalogo==='function') return window.baireListaProdutosCatalogo(); }catch(e){} const set=new Set(); try{ if(Array.isArray(PRODUTOS_CA)) PRODUTOS_CA.forEach(p=>p?.sku&&set.add(String(p.sku).trim())); }catch(e){} try{ if(Array.isArray(nfs)) nfs.forEach(n=>n?.produto&&set.add(String(n.produto).trim())); }catch(e){} return [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,'pt-BR')); }
   function clientes(){
@@ -10103,8 +10284,21 @@ function salvarOrcamentoTopoSeguro(){
     if(el.matches('.of-prod,.of-obs,#of-cliente')){
       const pos=el.selectionStart; el.value=String(el.value||'').toUpperCase(); try{el.setSelectionRange(pos,pos);}catch(_){ }
     }
-    // Importante: NÃO redesenha a tabela enquanto digita o produto, porque isso fecha a lista do autocomplete.
-    // Produto recalcula ao sair do campo ou ao clicar em Atualizar.
+    // Enquanto digita texto parcial não redesenha a tabela para preservar o autocomplete.
+    // Porém, quando o conteúdo já corresponde exatamente a um SKU cadastrado,
+    // recalcula automaticamente para reconhecer a cotação válida sem exigir sair do campo.
+    if(el.matches('.of-prod')){
+      clearTimeout(window.__ofProdTimer);
+      window.__ofProdTimer=setTimeout(()=>{
+        try{
+          const digitado=normaliza(el.value||'');
+          const chave=s=>normaliza(s).replace(/[^A-Z0-9]/g,'');
+          const kd=chave(digitado);
+          const exato=produtos().some(p=>normaliza(p)===digitado || (kd && chave(p)===kd));
+          if(exato) window.baireFuncAtualizarTela();
+        }catch(e){}
+      },220);
+    }
     if(el.matches('.of-qtd,.of-venda')){
       clearTimeout(window.__ofTimer); window.__ofTimer=setTimeout(()=>window.baireFuncAtualizarTela(),250);
     }
@@ -11081,6 +11275,70 @@ function salvarOrcamentoTopoSeguro(){
     const v=qs('baire-calc-venda'); if(v && !v.value) window.baireCalcComercialSugestao('minimo');
     calc();
   };
+
+  function chaveProdutoRef(txt){
+    return String(txt||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
+  }
+  function ultimaCompraReal(produto){
+    const alvo=chaveProdutoRef(produto);
+    if(!alvo) return null;
+    let base=[];
+    try{
+      if(typeof nfs!=='undefined' && Array.isArray(nfs)) base=nfs;
+      else base=JSON.parse(localStorage.getItem('toner_nfs')||'[]');
+    }catch(e){base=[];}
+    const regs=base.filter(n=>{
+      const k=chaveProdutoRef(n?.produto||'');
+      return k===alvo && numBR(n?.valor||0)>0 && n?.data;
+    }).sort((a,b)=>{
+      const da=String(a?.data||'').slice(0,10), db=String(b?.data||'').slice(0,10);
+      if(db!==da) return db.localeCompare(da);
+      return (Number(b?.id)||0)-(Number(a?.id)||0);
+    });
+    return regs[0]||null;
+  }
+
+  window.baireCalcCarregarUltimaCompraProduto=function(produto){
+    const prod=String(produto||'').trim();
+    if(!prod) return false;
+    const r=ultimaCompraReal(prod);
+    if(!r) return false;
+
+    const chave=chaveProdutoRef(prod);
+    if(window.__baireCalcUltimoProdutoAuto===chave) return true;
+    window.__baireCalcUltimoProdutoAuto=chave;
+
+    setVal('baire-calc-custo', numBR(r.valor||0));
+    const p=qs('baire-calc-produto');
+    if(p){
+      const data=String(r.data||'').split('-').reverse().join('/');
+      p.textContent=String(prod).toUpperCase()+' • última compra '+String(r.fornecedor||'-').toUpperCase()+' • '+data;
+    }
+    const q=qs('baire-calc-qtd'); if(q && !q.value) q.value='1';
+    const v=qs('baire-calc-venda');
+    if(v && !v.value) window.baireCalcComercialSugestao('minimo');
+    calc();
+    return true;
+  };
+
+  // Ao pesquisar um SKU exato na Consulta rápida, usa automaticamente
+  // a última compra real das NFs como custo de referência.
+  document.addEventListener('input',function(ev){
+    const el=ev.target;
+    if(!el || el.id!=='cot-analise-prod') return;
+    clearTimeout(window.__baireCalcBuscaTimer);
+    window.__baireCalcBuscaTimer=setTimeout(()=>{
+      const digitado=String(el.value||'').trim();
+      if(!digitado){ window.__baireCalcUltimoProdutoAuto=''; return; }
+      let catalogo=[];
+      try{
+        if(typeof window.baireListaProdutosCatalogo==='function') catalogo=window.baireListaProdutosCatalogo()||[];
+      }catch(e){}
+      const kd=chaveProdutoRef(digitado);
+      const produtoExato=catalogo.find(p=>chaveProdutoRef(p)===kd);
+      if(produtoExato) window.baireCalcCarregarUltimaCompraProduto(produtoExato);
+    },220);
+  });
   function instalar(){
     const body=qs('cot-analise-body'); if(!body || qs('baire-calc-comercial')) return;
     const card=body.closest('.card'); if(!card) return;
@@ -11106,7 +11364,7 @@ function salvarOrcamentoTopoSeguro(){
         <div class="baire-calc-row mini"><span>Por toner</span><strong id="baire-calc-lucro-toner">R$ 0,00</strong></div>
       </div>
       <div class="baire-calc-fields">
-        <label>Custo unitário<input id="baire-calc-custo" type="text" inputmode="decimal" placeholder="0,00" oninput="baireCalcComercialAtualizar()"></label>
+        <label>Custo unitário / última compra<input id="baire-calc-custo" type="text" inputmode="decimal" placeholder="0,00" oninput="baireCalcComercialAtualizar()"></label>
         <label>Quantidade<input id="baire-calc-qtd" type="number" min="0" step="1" placeholder="1" oninput="baireCalcComercialAtualizar()"></label>
         <label>Preço de venda<input id="baire-calc-venda" type="text" inputmode="decimal" placeholder="0,00" oninput="baireCalcComercialAtualizar()"></label>
       </div>
@@ -11125,7 +11383,7 @@ function salvarOrcamentoTopoSeguro(){
         <div><span>+ Entrega</span><strong id="baire-calc-entrega">R$ 0,00</strong></div>
         <div><span>Regra</span><strong>R$70/110 • R$25/37</strong></div>
       </div>
-      <div class="baire-calc-help">Dica: clique em qualquer preço da Consulta de Preços para preencher o custo. A aprovação usa os mesmos parâmetros da aba GESTÃO.</div>
+      <div class="baire-calc-help">Ao pesquisar um SKU exato, o custo carrega pela última NF. Se quiser simular outro fornecedor, clique em qualquer preço da Consulta de Preços.</div>
     `;
     content.insertBefore(calcBox, content.firstChild);
     calc();
@@ -11328,12 +11586,14 @@ function salvarOrcamentoTopoSeguro(){
 
   const oldOrcSI=window.orcSI;
   window.orcSI=function(i,sku){
+    // Mantém o valor escolhido na lista da GESTÃO. A regra de 7 dias continua
+    // exclusiva da COTAÇÃO VENDAS (vendedor) e não deve apagar custo na Gestão.
     if(typeof oldOrcSI==='function') oldOrcSI(i,sku);
     const ci=qs('oc'+i);
-    const cot=cotacaoVigenteUnica(sku || qs('os'+i)?.value || '');
-    if(ci){
-      if(cot){ ci.value=Number(cot.valor).toFixed(2); ci.style.background='#ecfdf5'; ci.title='Custo pela cotação vigente: '+cot.fornecedor+' em '+fmtData(cot.data); }
-      else { ci.value=''; ci.style.background='#fff7ed'; ci.title='Sem cotação válida: preencher manualmente'; }
+    if(ci && ci.value){
+      ci.dataset.baireCustoSelecionado='1';
+      ci.style.background='#ecfdf5';
+      ci.title='Custo carregado da seleção do produto; pode ser alterado manualmente.';
     }
     try{ if(typeof window.orcCalc==='function') window.orcCalc(); else if(typeof orcCalc==='function') orcCalc(); }catch(e){}
   };
