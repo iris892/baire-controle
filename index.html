@@ -8935,9 +8935,20 @@ setTimeout(orcInit,800);
 
 <script>
 // ===== ABRIR / EXCLUIR ORÇAMENTO DO HISTÓRICO =====
-function abrirOrcamentoHistorico(idx){
+async function abrirOrcamentoHistorico(idx){
   try{
-    let hist = JSON.parse(localStorage.getItem('orc_history') || '[]');
+    let hist = Array.isArray(orcHistory) ? orcHistory : JSON.parse(localStorage.getItem('orc_history') || '[]');
+    const selecionado = hist[idx] || {};
+    try{
+      const nuvem = await supaGet('orc_history');
+      if(Array.isArray(nuvem)){
+        hist = nuvem;
+        orcHistory = nuvem;
+        localStorage.setItem('orc_history', JSON.stringify(nuvem));
+        const novoIdx = hist.findIndex(h=>(selecionado.num && String(h.num)===String(selecionado.num)) || (selecionado.cotacaoVendedorId && String(h.cotacaoVendedorId)===String(selecionado.cotacaoVendedorId)));
+        if(novoIdx>=0) idx=novoIdx;
+      }
+    }catch(e){ console.warn('Histórico aberto com a cópia local.', e); }
     let orc = hist[idx];
     if(!orc){ alert('Orçamento não encontrado.'); return; }
     window.orcamentoHistoricoAbertoIdx = idx;
