@@ -9244,7 +9244,7 @@ function salvarOrcamentoTopoSeguro(){
     const registros=[];
     cotacoes().forEach(c=>{
       const dias = (typeof diasEntre==='function') ? diasEntre(c.data) : 0;
-      if(dias<0 || dias>7) return;
+      if(dias<0 || dias>10) return;
       (c.itens||[]).forEach(item=>{
         if(!baireProdutoCotacaoCombina(item.produto, alvo)) return;
         const vals=valoresItem(item);
@@ -10027,7 +10027,7 @@ function salvarOrcamentoTopoSeguro(){
     const registros=[];
     cotacoes().forEach(c=>{
       const dias=diasEntre(c.data);
-      if(dias<0 || dias>7) return;
+      if(dias<0 || dias>10) return;
       (c.itens||[]).forEach(item=>{
         if(!combina(item.produto, alvo)) return;
         const vals=valoresItem(item);
@@ -10061,46 +10061,37 @@ function salvarOrcamentoTopoSeguro(){
       lucroTonerIdeal:num(p.lucroTonerIdeal || 37)
     };
   }
-  function totalQtdAtual(fallbackQtd){
-    const arr=(Array.isArray(linhasCache)&&linhasCache.length?linhasCache:linhas());
-    const total=arr.reduce((s,x)=>s+Math.max(0,num(x.qtd)),0);
-    return total || Math.max(1,num(fallbackQtd));
+  function linhasDoCalculo(itens){
+    return Array.isArray(itens)?itens:(linhasCache.length?linhasCache:linhas());
   }
-  function calculaLinha(l){
-    const qtd=Math.max(0, num(l.qtd));
-    const cot=cotacaoVigente(l.produto);
-    const custoUnit=cot ? num(cot.valor) : 0;
-    const vendaCliente=num(l.vendaCliente);
-    const par=parametrosOrcamentoAdmin();
-    const totalQtd=totalQtdAtual(qtd);
-    const fixoUnit=(par.bol+par.ent)/(totalQtd||1);
-    const denNF=1-(par.pnf/100);
-    let sugerido=0, minAutorizado=0, status='PRECISA COTAR', classe='badge-alert';
-    if(cot && qtd>0){
-      // MESMA REGRA DA ABA ORÇAMENTO ADMINISTRATIVA:
-      // custo + rateio boleto/entrega + maior entre mínimo por toner e mínimo por venda rateado, dividido pela NF.
-      const lucroUnitMin=Math.max(par.lucroTonerMin, par.lucroVendaMin/(totalQtd||1));
-      const lucroUnitIdeal=Math.max(par.lucroTonerIdeal, par.lucroVendaIdeal/(totalQtd||1));
-      sugerido=denNF>0 ? Math.ceil(((custoUnit + fixoUnit + lucroUnitMin)/denNF)*100)/100 : 0;
-      minAutorizado=sugerido;
-      if(vendaCliente>0){
-        const tC=custoUnit*qtd;
-        const tV=vendaCliente*qtd;
-        const nfv=tV*(par.pnf/100);
-        const fixoLinha=fixoUnit*qtd;
-        const lnf=tV-(tC+nfv+fixoLinha);
-        let ap=null;
-        try{ ap=(typeof window.orcCA==='function')?window.orcCA(tC,tV,lnf,nfv,fixoLinha,qtd):orcCA(tC,tV,lnf,nfv,fixoLinha,qtd); }catch(_){ ap=null; }
-        const st=ap?.status || '';
-        if(st==='EXCELENTE'){ status='EXCELENTE'; classe='badge-ok'; }
-        else if(st==='APROVADO'){ status='APROVADO'; classe='badge-ok'; }
-        else if(st==='ATENÇÃO'){ status='ATENÇÃO / PEDIR APROVAÇÃO'; classe='badge-warn badge-pulse'; }
-        else { status='REPROVADO / PEDIR APROVAÇÃO'; classe='badge-alert'; }
-      } else { status='AGUARDANDO VALOR CLIENTE'; classe='badge-zero'; }
-    } else if(!cot){ status='PEDIR COTAÇÃO PARA VERINHA'; classe='badge-alert'; }
-    return {qtd,cot,custoUnit,sugerido,minAutorizado,status,classe};
+  function resultadoPedido(itens,par=parametrosOrcamentoAdmin()){
+    const active=linhasDoCalculo(itens).filter(l=>l.produto||num(l.qtd)||num(l.vendaCliente));
+    const qtd=active.reduce((s,l)=>s+Math.max(0,num(l.qtd)),0);
+    const venda=active.reduce((s,l)=>s+num(l.vendaCliente)*Math.max(0,num(l.qtd)),0);
+    const cotados=active.map(l=>({...l,cot:cotacaoVigente(l.produto)}));
+    const custo=cotados.reduce((s,l)=>s+(l.cot?num(l.cot.valor):0)*Math.max(0,num(l.qtd)),0);
+    const nf=venda*par.pnf/100,fixo=par.bol+par.ent,sobra=venda-custo-nf-fixo;
+    let status='VAZIO',classe='badge-zero',ap=null;
+    if(active.some(l=>l.produto&&!cotacaoVigente(l.produto))){status='PRECISA COTAR';classe='badge-alert';}
+    else if(active.some(l=>!l.produto||num(l.qtd)<=0||num(l.vendaCliente)<=0))status='AGUARDANDO VALOR CLIENTE';
+    else if(active.length){
+      ap=orcCA(custo,venda,sobra,nf,fixo,qtd);
+      if(['APROVADO','EXCELENTE'].includes(ap.status)){status=ap.status;classe='badge-ok';}
+      else if(ap.status==='ATENÇÃO'){status='ATENÇÃO / PEDIR APROVAÇÃO';classe='badge-warn badge-pulse';}
+      else{status='REPROVADO / PEDIR APROVAÇÃO';classe='badge-alert';}
+    }
+    return {qtd,venda,custo,nf,fixo,sobra,status,classe,ap};
   }
-
+  function calculaLinha(l,itens,resultado){
+    const par=parametrosOrcamentoAdmin(),pedido=resultado||resultadoPedido(itens,par);
+    const qtd=Math.max(0,num(l.qtd)),cot=cotacaoVigente(l.produto),custoUnit=cot?num(cot.valor):0;
+    const fixoUnit=(par.bol+par.ent)/(pedido.qtd||1),denNF=1-par.pnf/100;
+    const lucroUnitMin=Math.max(par.lucroTonerMin,par.lucroVendaMin/(pedido.qtd||1));
+    const sugerido=cot&&qtd>0&&denNF>0?Math.ceil((custoUnit+fixoUnit+lucroUnitMin)/denNF*100)/100:0;
+    const lucroUnit=num(l.vendaCliente)*denNF-custoUnit-fixoUnit;
+    const alertaItem=cot&&qtd>0&&num(l.vendaCliente)>0&&lucroUnit<par.lucroTonerMin-1e-8?'Produto abaixo do mínimo por toner. Revise o valor deste item.':'';
+    return {qtd,cot,custoUnit,sugerido,minAutorizado:sugerido,status:pedido.status,classe:pedido.classe,alertaItem};
+  }
   function criarAba(){
     if(qs('page-orc-func')) return;
     const tabs=document.querySelector('.tabs');
@@ -10133,7 +10124,7 @@ function salvarOrcamentoTopoSeguro(){
           </div>
           <div style="display:flex;gap:8px;align-items:center;margin:16px 0;flex-wrap:wrap">
             <button class="btn-primary" onclick="baireFuncAddLinha()">+ Produto</button>
-            <span class="help">Produto vem da aba Produtos/SKU. Cotação válida: no máximo 7 dias.</span>
+            <span class="help">Produto vem da aba Produtos/SKU. Cotação válida: no máximo 10 dias.</span>
           </div>
           <datalist id="of-produtos-lista"></datalist>
           <datalist id="of-clientes-lista"></datalist>
@@ -10172,8 +10163,8 @@ function salvarOrcamentoTopoSeguro(){
     vendaCliente:num(tr.querySelector('.of-venda')?.value||0),
     obs:normaliza(tr.querySelector('.of-obs')?.value||'')
   })).filter(x=>x.produto || x.qtd || x.vendaCliente || x.obs); }
-  function montarLinha(l={}){
-    const c=calculaLinha(l);
+  function montarLinha(l={},itens,resultado){
+    const c=calculaLinha(l,itens,resultado);
     const tr=document.createElement('tr');
     const cotTxt=c.cot ? `COTAÇÃO OK — ${fmtData(c.cot.data)}` : 'SEM COTAÇÃO VÁLIDA';
     tr.innerHTML=`<td style="min-width:230px"><input class="of-prod" list="of-produtos-lista" type="text" value="${esc(l.produto||'')}" placeholder="PRODUTO/SKU" style="width:100%"></td>
@@ -10181,7 +10172,7 @@ function salvarOrcamentoTopoSeguro(){
       <td><span class="badge ${c.cot?'badge-ok':'badge-alert'}">${esc(cotTxt)}</span></td>
       <td style="text-align:right;font-weight:700;color:#1a3a5c">${c.sugerido?moeda(c.sugerido):'—'}</td>
       <td style="width:150px"><input class="of-venda" type="number" min="0" step="0.01" value="${l.vendaCliente||''}" style="width:100%;text-align:right"></td>
-      <td><span class="badge ${c.classe}">${esc(c.status)}</span></td>
+      <td><span class="badge ${c.classe}">${esc(c.status)}</span>${c.alertaItem?'<div class="help">'+esc(c.alertaItem)+'</div>':''}</td>
       <td style="min-width:150px"><input class="of-obs" type="text" value="${esc(l.obs||'')}" placeholder="OBS." style="width:100%"></td>
       <td style="white-space:nowrap"><button class="btn-secondary btn-sm" onclick="baireFuncAtualizarTela()">Atualizar</button> <button class="btn-danger btn-sm" onclick="this.closest('tr').remove(); baireFuncAtualizarTela()">Excluir</button></td>`;
     return tr;
@@ -10192,10 +10183,16 @@ function salvarOrcamentoTopoSeguro(){
     linhasCache=arr.length?arr:[{}];
     const body=qs('of-body'); if(!body) return;
     body.innerHTML='';
-    linhasCache.forEach(l=>body.appendChild(montarLinha(l)));
+    const resultado=resultadoPedido(linhasCache);
+    linhasCache.forEach(l=>body.appendChild(montarLinha(l,linhasCache,resultado)));
+    let resumo=qs('of-result');
+    if(!resumo){resumo=document.createElement('div');resumo.id='of-result';resumo.className='help';resumo.style.cssText='padding:12px;margin:12px 0;background:#eff6ff;border-radius:8px';body.closest('table').parentElement.insertAdjacentElement('beforebegin',resumo);}
+    resumo.innerHTML='<strong>Resultado do pedido completo:</strong> <span class="badge '+resultado.classe+'">'+esc(resultado.status)+'</span> — '+resultado.qtd+' unidade(s) • '+moeda(resultado.venda)+'<br>O status considera todos os produtos juntos, como na Gestão. Alertas por item aparecem separadamente.';
   };
   window.baireFuncAddLinha=function(){ const body=qs('of-body'); if(body){ linhasCache=linhas().concat([{}]); body.appendChild(montarLinha({})); } };
   window.baireFuncNovoOrcamento=function(){
+    linhasCache=[];
+    qs('of-result')?.remove();
     if(qs('of-data')) qs('of-data').value=hojeISO();
     if(qs('of-cliente')) qs('of-cliente').value='';
     const body=qs('of-body'); if(body){ body.innerHTML=''; body.appendChild(montarLinha({})); }
@@ -10203,12 +10200,8 @@ function salvarOrcamentoTopoSeguro(){
   };
   function statusGeral(itens){
     if(!itens.length) return 'VAZIO';
-    const statusItens = itens.map(i=>normaliza(calculaLinha(i).status||i.status||''));
-    if(statusItens.some(st=>st.includes('PEDIR COTAÇÃO') || st.includes('PRECISA COTAR') || st.includes('SEM COTAÇÃO'))) return 'PRECISA COTAR';
-    if(statusItens.some(st=>st.includes('REPROVADO') || st.includes('PEDIR APROVAÇÃO') || st.includes('APROVAÇÃO') || st.includes('ATENÇÃO'))) return 'PENDENTE APROVAÇÃO';
-    if(statusItens.every(st=>st==='EXCELENTE')) return 'EXCELENTE';
-    if(statusItens.every(st=>['APROVADO','EXCELENTE'].includes(st))) return 'APROVADO';
-    return 'PENDENTE';
+    const resultado=resultadoPedido(itens);
+    return /PEDIR APROVAÇÃO/.test(resultado.status)?'PENDENTE APROVAÇÃO':resultado.status;
   }
   function classeStatusVendedor(s){
     const st=normaliza(s);
@@ -10219,10 +10212,23 @@ function salvarOrcamentoTopoSeguro(){
     if(st==='VAZIO' || st==='PENDENTE') return 'badge-zero';
     return 'badge-zero';
   }
+  function statusHistoricoCalculado(o){
+    const itens=Array.isArray(o.itens)?o.itens:[];
+    if(!itens.length||itens.some(i=>!Object.prototype.hasOwnProperty.call(i,'custoBaseInterno')||!i.cotacaoData))return o;
+    const par={pnf:7,bol:1.99,ent:14,...(o.calcParameters||{})};
+    const qtd=itens.reduce((s,i)=>s+num(i.qtd),0),venda=itens.reduce((s,i)=>s+num(i.qtd)*num(i.vendaCliente),0),custo=itens.reduce((s,i)=>s+num(i.qtd)*num(i.custoBaseInterno),0);
+    if(qtd<=0||itens.some(i=>num(i.qtd)<=0||num(i.vendaCliente)<=0))return o;
+    const nf=venda*par.pnf/100,fixo=par.bol+par.ent,ap=orcCA(custo,venda,venda-custo-nf-fixo,nf,fixo,qtd);
+    const status=['APROVADO','EXCELENTE'].includes(ap.status)?ap.status:'PENDENTE APROVAÇÃO';
+    const statusItem=ap.status==='ATENÇÃO'?'ATENÇÃO / PEDIR APROVAÇÃO':ap.status==='RISCO'?'REPROVADO / PEDIR APROVAÇÃO':ap.status;
+    return {...o,status,itens:itens.map(i=>({...i,status:statusItem}))};
+  }
+  window.baireStatusCotacaoCalculado=statusHistoricoCalculado;
   window.baireFuncSalvarOrcamento=function(){
-    const itens=linhas().map(i=>{ const c=calculaLinha(i); return {...i, status:c.status, cotacaoData:c.cot?.data||'', custoBaseInterno:c.custoUnit, vendaSugerida:c.sugerido, criadoEm:new Date().toISOString()}; });
+    const atuais=linhas(),resultado=resultadoPedido(atuais);
+    const itens=atuais.map(i=>{ const c=calculaLinha(i,atuais,resultado); return {...i, status:c.status, alertaItem:c.alertaItem, cotacaoData:c.cot?.data||'', custoBaseInterno:c.custoUnit, vendaSugerida:c.sugerido, criadoEm:new Date().toISOString()}; });
     if(!itens.length){ alert('Inclua pelo menos um produto.'); return; }
-    const obj={id:Date.now(), data:qs('of-data')?.value||hojeISO(), cliente:normaliza(qs('of-cliente')?.value||''), funcionario:normaliza(qs('of-funcionario')?.value||''), itens, status:statusGeral(itens), criadoEm:new Date().toISOString(), atualizadoEm:new Date().toISOString()};
+    const obj={id:Date.now(), data:qs('of-data')?.value||hojeISO(), cliente:normaliza(qs('of-cliente')?.value||''), funcionario:normaliza(qs('of-funcionario')?.value||''), itens, calcParameters:parametrosOrcamentoAdmin(), status:statusGeral(itens), criadoEm:new Date().toISOString(), atualizadoEm:new Date().toISOString()};
     const arr=hist();
     arr.unshift(obj);
     salvarHist(arr);
@@ -10249,7 +10255,8 @@ function salvarOrcamentoTopoSeguro(){
     const q=normaliza(qs('of-busca')?.value||'');
     let arr=hist(); if(q) arr=arr.filter(o=>normaliza(JSON.stringify(o)).includes(q));
     if(!arr.length){ tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum orçamento de vendedor salvo ainda.</td></tr>'; return; }
-    tb.innerHTML=arr.map(o=>{
+    tb.innerHTML=arr.map(registro=>{
+      const o=statusHistoricoCalculado(registro);
       const stFinal=o.statusAdmin || o.status || '-';
       const detalhe=o.aprovadoPor ? `<div class="help">por ${esc(o.aprovadoPor)} ${o.aprovadoEm?('em '+new Date(o.aprovadoEm).toLocaleString('pt-BR')):''}</div>` : '';
       return `<tr><td>${fmtData(o.data)}</td><td>${esc(o.cliente||'-')}</td><td>${esc(o.funcionario||'-')}</td><td>${resumoItensHistorico(o)}</td><td><span class="badge ${classeStatusVendedor(stFinal)}">${esc(stFinal)}</span>${detalhe}</td><td><button class="btn-secondary btn-sm" onclick="baireFuncAbrir(${o.id})">Abrir</button> <button class="btn-green btn-sm" onclick="baireFuncDecidir(${o.id},'APROVADO ADMIN')">Aprovar</button> <button class="btn-secondary btn-sm" onclick="baireFuncDecidir(${o.id},'SOLICITAR AJUSTE')">Ajuste</button> <button class="btn-danger btn-sm" onclick="baireFuncDecidir(${o.id},'REPROVADO ADMIN')">Reprovar</button> <button class="btn-danger btn-sm" onclick="baireFuncExcluir(${o.id})">Excluir</button></td></tr>`;
@@ -10260,7 +10267,10 @@ function salvarOrcamentoTopoSeguro(){
     if(qs('of-data')) qs('of-data').value=o.data||hojeISO();
     if(qs('of-cliente')) qs('of-cliente').value=o.cliente||'';
     if(qs('of-funcionario')) qs('of-funcionario').value=o.funcionario||'VERINHA';
-    const body=qs('of-body'); if(body){ body.innerHTML=''; (o.itens||[]).forEach(i=>body.appendChild(montarLinha(i))); }
+    linhasCache=Array.isArray(o.itens)?o.itens:[];
+    const resultado=resultadoPedido(linhasCache);
+    const body=qs('of-body'); if(body){ body.innerHTML=''; linhasCache.forEach(i=>body.appendChild(montarLinha(i,linhasCache,resultado))); }
+    window.baireFuncAtualizarTela();
     if(typeof showPage==='function') showPage('orc-func');
   };
   window.baireFuncDecidir=function(id,decisao){
@@ -10523,9 +10533,10 @@ function salvarOrcamentoTopoSeguro(){
   window.baireAprovRender=function(){
     const tb=document.getElementById('aprovBody'); if(!tb) return;
     let arr=[]; try{arr=JSON.parse(localStorage.getItem('baire_orcamentos_funcionarios')||'[]')||[];}catch(e){}
+    if(typeof window.baireStatusCotacaoCalculado==='function')arr=arr.map(window.baireStatusCotacaoCalculado);
     const filtro=document.getElementById('aprovFiltro')?.value||'pendentes'; const q=norm(document.getElementById('aprovBusca')?.value||'');
     if(q) arr=arr.filter(o=>norm(JSON.stringify(o)).includes(q));
-    arr=arr.filter(o=>{const st=norm(o.statusAdmin||o.status||''); if(filtro==='todos') return true; if(filtro==='aprovados') return st.includes('APROV'); if(filtro==='reprovados') return st.includes('REPROV'); return !st.includes('APROV') && !st.includes('REPROV');});
+    arr=arr.filter(o=>{const st=norm(o.statusAdmin||o.status||''),aprovado=['APROVADO','EXCELENTE','APROVADO ADMIN'].includes(st),reprovado=st.includes('REPROV'); if(filtro==='todos') return true; if(filtro==='aprovados') return aprovado; if(filtro==='reprovados') return reprovado; return !aprovado && !reprovado;});
     if(!arr.length){tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum orçamento para mostrar.</td></tr>';return;}
     tb.innerHTML=arr.map(o=>{const st=o.statusAdmin||o.status||'PENDENTE APROVAÇÃO'; const detalhe=o.aprovadoPor?`<div class="help">por ${o.aprovadoPor} ${o.aprovadoEm?('em '+new Date(o.aprovadoEm).toLocaleString('pt-BR')):''}</div>`:''; const itens=(Array.isArray(o.itens)?o.itens:[]).map(i=>`<div><strong>${i.produto||'-'}</strong> — Qtd: ${i.qtd||0} | Sug.: ${typeof moeda==='function'?moeda(i.vendaSugerida||0):i.vendaSugerida} | Cliente: ${i.vendaCliente? (typeof moeda==='function'?moeda(i.vendaCliente):i.vendaCliente) :'—'} <span class="badge ${classeAprov(i.status)}">${i.status||''}</span></div>`).join('')||'Sem itens'; return `<tr><td>${typeof fmtData==='function'?fmtData(o.data):o.data}</td><td>${o.cliente||'-'}</td><td>${o.funcionario||'-'}</td><td><div class="itens-venda">${itens}</div></td><td><span class="badge ${classeAprov(st)}">${st}</span>${detalhe}</td><td><button class="btn-green btn-sm" onclick="baireFuncDecidir(${o.id},'APROVADO ADMIN')">Aprovar</button> <button class="btn-secondary btn-sm" onclick="baireFuncDecidir(${o.id},'SOLICITAR AJUSTE')">Ajuste</button> <button class="btn-danger btn-sm" onclick="baireFuncDecidir(${o.id},'REPROVADO ADMIN')">Reprovar</button></td></tr>`;}).join('');
   };
@@ -11497,7 +11508,7 @@ function salvarOrcamentoTopoSeguro(){
   function renderHistoricoSeguro(){
     const tb=document.getElementById('of-hist'); if(!tb) return;
     const q=norm(document.getElementById('of-busca')?.value||'');
-    let arr=hist().filter(canSee);
+    let arr=hist().filter(canSee).map(o=>typeof window.baireStatusCotacaoCalculado==='function'?window.baireStatusCotacaoCalculado(o):o);
     if(q) arr=arr.filter(o=>norm(JSON.stringify(o)).includes(q));
     if(!arr.length){tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum orçamento para mostrar.</td></tr>'; return;}
     tb.innerHTML=arr.map(o=>{
