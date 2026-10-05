@@ -9221,7 +9221,7 @@ function salvarOrcamentoTopoSeguro(){
   function fornecedoresTodos(){
     const set=new Set(FORNECEDORES_PADRAO);
     try { if(typeof nfs !== 'undefined' && Array.isArray(nfs)) nfs.forEach(n=>{ if(n && n.fornecedor) set.add(normaliza(n.fornecedor)); }); } catch(e){}
-    cotacoes().forEach(c=>{ (c.fornecedores||[]).forEach(f=>set.add(normaliza(f))); });
+    cotacoes().forEach(c=>{ (c.fornecedores||[]).forEach(f=>set.add(normaliza(f))); (c.itens||[]).forEach(item=>Object.keys(item.valores||{}).forEach(f=>set.add(normaliza(f)))); });
     return [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,'pt-BR'));
   }
   function fornSelecionados(){ return [...document.querySelectorAll('#cot-fornecedores input:checked')].map(i=>normaliza(i.value)); }
@@ -9295,7 +9295,7 @@ function salvarOrcamentoTopoSeguro(){
         <div style="padding:16px">
           <div class="form-grid" style="grid-template-columns:180px 1fr">
             <div class="form-group"><label>Data da cotação</label><input type="date" id="cot-data"></div>
-            <div class="form-group"><label>Fornecedores participantes</label><div id="cot-fornecedores" style="display:flex;gap:8px;flex-wrap:wrap"></div></div>
+            <div class="form-group"><label>Fornecedores participantes</label><small class="help">Desmarcar apenas oculta a coluna. Os preços são preservados ao salvar e reaparecem ao marcar novamente.</small><div id="cot-fornecedores" style="display:flex;gap:8px;flex-wrap:wrap"></div></div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;margin:16px 0;flex-wrap:wrap">
             <button class="btn-primary" onclick="baireAddLinhaCotacao()">+ Produto</button>
@@ -9403,7 +9403,7 @@ function salvarOrcamentoTopoSeguro(){
       const produto=tr.querySelector('.cot-prod')?.value?.trim()||'';
       const qtd=numBR(tr.querySelector('.cot-qtd')?.value||0);
       const obs=tr.querySelector('.cot-obs')?.value?.trim()||'';
-      const valores={};
+      const valores={...(tr.baireValoresCotacao||{})};
       tr.querySelectorAll('.cot-valor').forEach(inp=>{ valores[normaliza(inp.dataset.forn)] = numBR(inp.value); });
       const refCompraId=tr.dataset.refCompraId||'';
       return {produto, qtd, valores, obs, refCompraId};
@@ -9529,6 +9529,8 @@ function salvarOrcamentoTopoSeguro(){
 
   function montarLinha(item={}){
     const tr=document.createElement('tr');
+    // Guarda inclusive os fornecedores ocultos; os campos visíveis sobrescrevem só seus próprios preços.
+    tr.baireValoresCotacao={...(item.valores||{})};
     if(item.refCompraId!==undefined && item.refCompraId!==null && String(item.refCompraId)!=='') tr.dataset.refCompraId=String(item.refCompraId);
     const forn=fornSelecionados();
     tr.innerHTML=`<td style="min-width:260px"><input class="cot-prod" list="cot-produtos-lista" type="text" value="${esc(item.produto||'')}" placeholder="PRODUTO/SKU" style="width:100%" oninput="baireAtualizarUltimaCompraCotacao(this)" onchange="baireAtualizarUltimaCompraCotacao(this)">
@@ -9575,7 +9577,8 @@ function salvarOrcamentoTopoSeguro(){
 
     // Monta registro novo/edição e grava primeiro LOCALMENTE.
     let arr=cotacoes();
-    const obj={id:cotEditId||Date.now(), data, fornecedores, itens, atualizadoEm:new Date().toISOString(), criadoPor:(window.usuarioLogado?.nome||window.usuarioLogado?.usuario||'')};
+    const fornecedoresSalvos=[...new Set([...fornecedores,...itens.flatMap(item=>Object.keys(item.valores||{}))])];
+    const obj={id:cotEditId||Date.now(), data, fornecedores:fornecedoresSalvos, fornecedoresVisiveis:fornecedores, itens, atualizadoEm:new Date().toISOString(), criadoPor:(window.usuarioLogado?.nome||window.usuarioLogado?.usuario||'')};
     const idx=arr.findIndex(c=>String(c.id)===String(obj.id));
     if(idx>=0) arr[idx]=obj; else arr.unshift(obj);
     arr = mergeCotacoes(arr, []);
@@ -9849,7 +9852,7 @@ function salvarOrcamentoTopoSeguro(){
     cotEditId=c.id;
     if(qs('cot-data')) qs('cot-data').value=c.data||hojeISO();
     renderFornecedores();
-    document.querySelectorAll('#cot-fornecedores input').forEach(i=>{ i.checked=(c.fornecedores||[]).map(normaliza).includes(normaliza(i.value)); });
+    document.querySelectorAll('#cot-fornecedores input').forEach(i=>{ i.checked=(c.fornecedoresVisiveis||c.fornecedores||[]).map(normaliza).includes(normaliza(i.value)); });
     window.baireRenderCotTabela();
     const body=qs('cot-body'); if(body){ body.innerHTML=''; (c.itens||[]).forEach(item=>body.appendChild(montarLinha(item))); }
     if(typeof showPage==='function') showPage('cotacoes');
