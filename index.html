@@ -3268,13 +3268,13 @@ function baireHojeLocalISO(){
 
   <div class="card">
     <div class="card-header">
-      <h2>⚠️ Controle de Defeitos / Garantia</h2><button onclick="window.print()" style="background:#f0f4f8;border:1px solid #d1d5db;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;color:#374151;margin-left:8px">🖨️ Imprimir</button>
+      <h2>⚠️ Controle de Defeitos / Garantia</h2><button onclick="baireDefImprimir(false)" style="background:#f0f4f8;border:1px solid #d1d5db;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;color:#374151;margin-left:8px">🖨️ Imprimir</button>
       <div class="search-wrap">
         <input type="text" id="filtroDefBusca" placeholder="🔍 Buscar cliente, produto, pedido..." 
           style="width:260px" oninput="renderDefeitos()">
         <select id="filtroDefFornecedor" onchange="renderDefeitos()"><option value="">Todos fornecedores</option><option value="CASA FORTE">CASA FORTE</option><option value="MASTER CAMP">MASTER CAMP</option><option value="MERCADO LIVRE">MERCADO LIVRE</option><option value="TF">TF</option></select>
         <select id="filtroDefStatus" onchange="renderDefeitos()">
-          <option value="">Todos status</option>
+          <option value="">Todos status antigos</option>
           <option value="retirado_analise">🔴 Retirado no cliente para análise</option>
           <option value="trocado_imediato">🟢 Trocado no cliente imediato</option>
           <option value="enviado_fornecedor">🟡 Enviado ao fornecedor</option>
@@ -3299,8 +3299,8 @@ function baireHojeLocalISO(){
         <button class="btn-secondary" onclick="alterarStatusDefeitosSelecionados()" style="background:#dcfce7;border:1px solid #86efac;color:#166534">✓ Aplicar aos selecionados</button>
         <button class="btn-secondary" onclick="alterarStatusDefeitosFiltrados()" style="background:#fef3c7;border:1px solid #fcd34d;color:#92400e">✓ Aplicar aos filtrados</button>
         <button class="btn-primary" onclick="openModalDefeito()">+ Registrar Defeito</button>
-        <button class="btn-secondary" onclick="imprimirPorFornecedor(false)">🖨️ Imprimir por Fornecedor</button>
-        <button class="btn-secondary" onclick="imprimirPorFornecedor(true)" style="background:#e0f2fe;border-color:#7dd3fc;color:#0369a1">📤 Enviar ao Fornecedor</button>
+        <button class="btn-secondary" onclick="baireDefImprimir(false)">🖨️ Imprimir por Fornecedor</button>
+        <button class="btn-secondary" onclick="baireDefImprimir(true)" style="background:#e0f2fe;border-color:#7dd3fc;color:#0369a1">📤 Enviar ao Fornecedor</button>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -3308,7 +3308,7 @@ function baireHojeLocalISO(){
         <thead><tr>
           <th><input type="checkbox" id="chkDefTodos" onchange="selecionarDefeitosVisiveis(this.checked)"></th><th>Venda</th><th>Análise</th><th>Envio</th><th>Cliente</th><th>Produto</th><th>Defeito</th><th>Marca</th>
           <th>Fornecedor</th><th>NF Compra</th><th>Data Compra</th><th>Ped. Compra</th>
-          <th>Ped. Venda</th><th>Ped. Análise</th><th>Status</th><th></th>
+          <th>Ped. Venda</th><th>Ped. Análise</th><th>Registro anterior / acompanhamento</th><th>Ações</th>
         </tr></thead>
         <tbody id="tbDefeitos"></tbody>
       </table>
@@ -6406,7 +6406,15 @@ function salvarDefeito() {
   const editId = parseInt(document.getElementById('modalDefeito').dataset.editId || '0');
   if (editId) {
     const idx = defeitos.findIndex(x=>x.id===editId);
-    if (idx >= 0) { def.id = editId; defeitos[idx] = def; }
+    if (idx >= 0) {
+      const anterior = defeitos[idx];
+      def.id = editId;
+      def.historico = Array.isArray(anterior.historico) ? anterior.historico.slice() : [];
+      if (normalizarStatusDefeito(anterior.status) !== normalizarStatusDefeito(def.status)) {
+        def.historico.push({data: baireHojeLocalISO(), status: def.status, obs: 'Status alterado na edição do cadastro', registradoEm: new Date().toISOString(), usuario: JSON.parse(localStorage.getItem('baire_usuario_logado') || '{}').nome || 'Não informado'});
+      }
+      defeitos[idx] = {...anterior, ...def};
+    }
     document.getElementById('modalDefeito').dataset.editId = '';
     document.querySelector('#modalDefeito h3').textContent = 'Registrar Toner com Defeito';
   } else {
@@ -11923,4 +11931,61 @@ function baireGerarImpressaoMapa(id, orientacao, fornecedoresSelecionados, mostr
 
 </script>
 
+
+<!-- Acompanhamento de garantia 2026-10-06: dados legados preservados -->
+<script>
+(function(){
+'use strict';
+const KEY='baire_defeitos_acompanhamento_v1', CLOUD='defeitos_acompanhamento_v1';
+const etapas={nao_informado:'Não informado',aguardando_retorno:'Aguardando retorno do toner à Baire',aguardando_envio:'Na Baire, aguardando envio',enviado:'No fornecedor, aguardando resposta',troca_recebida:'Troca recebida',credito_recebido:'Crédito recebido',recusado:'Troca recusada'};
+const clientes={nao_informado:'Não informado',aguardando:'Aguardando atendimento',trocado:'Trocado no cliente',resolvido:'Resolvido sem troca'};
+let tracks={},loading=null,ready=false,busy=false;
+try{tracks=JSON.parse(localStorage.getItem(KEY)||'{}');}catch(e){}
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const get=id=>tracks[String(id)]||{};
+const val=id=>document.getElementById(id)?.value||'';
+const opts=(o,empty)=> (empty?'<option value="">'+esc(empty)+'</option>':'')+Object.entries(o).map(([k,v])=>'<option value="'+k+'">'+esc(v)+'</option>').join('');
+function merge(a,b){const out={...a};Object.entries(b||{}).forEach(([id,t])=>{if(!out[id]||(t.atualizadoEm||'')>=(out[id].atualizadoEm||''))out[id]=t;});return out;}
+function local(){localStorage.setItem(KEY,JSON.stringify(tracks));}
+async function load(){if(loading)return loading;loading=(async()=>{try{if(location.protocol!=='file:'){const cloud=await supaGet(CLOUD);tracks=merge(cloud&&typeof cloud==='object'&&!Array.isArray(cloud)?cloud:{},tracks);local();}ready=true;renderDefeitos();}catch(e){ready=false;const el=document.getElementById('defTrackNotice');if(el)el.textContent='Não foi possível consultar o acompanhamento online. Clique em Atualizar acompanhamento para tentar novamente.';}finally{loading=null;}})();return loading;}
+window.baireDefRecarregar=load;
+function usuario(){try{const u=JSON.parse(localStorage.getItem('baire_usuario_logado')||'{}');return u.nome||u.usuario||'Não informado';}catch(e){return 'Não informado';}}
+function data(v){if(!v)return '-';return /^\d{4}-\d{2}-\d{2}$/.test(v)?v.split('-').reverse().join('/'):new Date(v).toLocaleString('pt-BR');}
+function summary(d){const t=get(d.id);return '<div style="margin-top:6px;white-space:normal;font-size:12px"><b>Cliente:</b> '+esc(clientes[t.cliente]||clientes.nao_informado)+'<br><b>Processo:</b> '+esc(etapas[t.etapa]||etapas.nao_informado)+(t.fornecedor?'<br><b>Fornecedor do processo:</b> '+esc(t.fornecedor):'')+(t.dataEnvio?'<br>Enviado: '+esc(data(t.dataEnvio)):'')+'</div>';}
+const oldFilter=obterDefeitosFiltrados;
+obterDefeitosFiltrados=function(){return oldFilter().filter(d=>{const t=get(d.id);return (!val('filtroDefEtapa')||(t.etapa||'nao_informado')===val('filtroDefEtapa'))&&(!val('filtroDefCliente')||(t.cliente||'nao_informado')===val('filtroDefCliente'))&&(!val('filtroDefProcessoForn')||(t.fornecedor||d.fornecedor||'')===val('filtroDefProcessoForn'));});};
+renderDefeitos=function(){
+ const sel=document.getElementById('filtroDefFornecedor');if(!sel)return;
+ const cur=sel.value;sel.innerHTML='<option value="">Todos fornecedores de origem</option>'+[...new Set(defeitos.map(d=>d.fornecedor).filter(Boolean))].sort().map(f=>'<option value="'+esc(f)+'"'+(f===cur?' selected':'')+'>'+esc(f)+'</option>').join('');
+ const pf=document.getElementById('filtroDefProcessoForn');if(pf){const prev=pf.value;pf.innerHTML='<option value="">Todos fornecedores do processo</option>'+[...new Set(defeitos.map(d=>get(d.id).fornecedor||d.fornecedor).filter(Boolean))].sort().map(f=>'<option value="'+esc(f)+'"'+(f===prev?' selected':'')+'>'+esc(f)+'</option>').join('');}
+ const dados=obterDefeitosFiltrados();document.getElementById('tbDefeitos').innerHTML=dados.length?dados.map(d=>'<tr><td><input type="checkbox" class="chk-defeito" value="'+esc(d.id)+'"></td><td>'+esc(data(d.dataVenda))+'</td><td>'+esc(data(d.dataAnalise))+'</td><td>'+esc(data(get(d.id).dataEnvio||d.dataEnvioFornecedor))+'</td><td>'+esc(d.cliente)+'</td><td><strong>'+esc(d.produto)+'</strong><br>'+esc(d.modelo||'')+'</td><td style="white-space:normal;max-width:260px">'+esc(d.obs||'-')+'</td><td>'+esc(d.marca||'-')+'</td><td>'+esc(d.fornecedor||'-')+'</td><td>'+esc(d.nfCompra||'-')+'</td><td>'+esc(data(d.dataCompra))+'</td><td>'+esc(d.pedCompra||'-')+'</td><td>'+esc(d.pedVenda||'-')+'</td><td>'+esc(d.pedAnalise||'-')+'</td><td style="min-width:220px;white-space:normal"><span class="badge" style="background:'+statusBg(d.status)+';color:'+statusColor(d.status)+'">'+esc(STATUS_LABEL[normalizarStatusDefeito(d.status)]||d.status)+'</span>'+summary(d)+'</td><td><button class="btn-secondary btn-sm" onclick="editarDefeito('+Number(d.id)+')">Editar cadastro</button><br><button class="btn-primary btn-sm" style="margin-top:5px" onclick="baireDefAndamento('+Number(d.id)+')">Alterar andamento</button><br><button class="btn-secondary btn-sm" style="margin-top:5px" onclick="baireDefHistorico('+Number(d.id)+')">Ver histórico</button></td></tr>').join(''):'<tr><td colspan="16" class="empty">Nenhum defeito para os filtros selecionados</td></tr>';
+ if(document.getElementById('chkDefTodos'))document.getElementById('chkDefTodos').checked=false;
+ const c=document.getElementById('defTrackCount');if(c)c.textContent=dados.length+' registro(s) nos filtros';renderMetricasDefeitos();
+};
+renderMetricasDefeitos=function(){const el=document.getElementById('metricasDefeitos');if(!el)return;const count=k=>defeitos.filter(d=>(get(d.id).etapa||'nao_informado')===k).length;el.innerHTML=[['Total',defeitos.length],['Sem informação',count('nao_informado')],['Aguardando retorno',count('aguardando_retorno')],['Aguardando envio',count('aguardando_envio')],['No fornecedor',count('enviado')],['Troca / crédito recebido',count('troca_recebida')+count('credito_recebido')],['Recusados',count('recusado')]].map(([label,n])=>'<div class="metric"><div class="label">'+label+'</div><div class="value">'+n+'</div></div>').join('');};
+window.baireDefAndamento=function(id){const d=defeitos.find(x=>String(x.id)===String(id));if(!d)return;const t=get(id);document.getElementById('dt_id').value=id;document.getElementById('dt_title').textContent=d.cliente+' — '+d.produto;document.getElementById('dt_cliente').value=t.cliente||'nao_informado';document.getElementById('dt_etapa').value=t.etapa||'nao_informado';document.getElementById('dt_data').value=baireHojeLocalISO();document.getElementById('dt_envio').value=t.dataEnvio||'';document.getElementById('dt_forn').value=t.fornecedor||d.fornecedor||'';document.getElementById('dt_obs').value='';document.getElementById('dt_msg').textContent='';openModal('modalDefAndamento');};
+window.baireDefSalvarAndamento=async function(){
+ if(busy)return;const id=val('dt_id'),etapa=val('dt_etapa'),cliente=val('dt_cliente'),fornecedor=val('dt_forn').trim(),eventoData=val('dt_data'),envio=val('dt_envio'),obs=val('dt_obs').trim(),msg=document.getElementById('dt_msg');
+ if(!eventoData){msg.textContent='Informe a data do andamento.';return;}
+ if(etapa==='enviado'&&(!fornecedor||!envio)){msg.textContent='Para registrar envio, informe fornecedor e data de envio.';return;}
+ busy=true;document.getElementById('dt_save').disabled=true;msg.textContent='Salvando...';
+ try{
+  if(location.protocol==='file:')throw new Error('Abra o sistema pelo endereço online para salvar para a equipe.');
+  const cloud=await supaGet(CLOUD);tracks=merge(cloud&&typeof cloud==='object'&&!Array.isArray(cloud)?cloud:{},tracks);
+  const prev=get(id),now=new Date().toISOString();const h={id:now+'-'+Math.random().toString(36).slice(2),data:eventoData,registradoEm:now,usuario:usuario(),cliente,etapa,fornecedor,dataEnvio:envio,obs};
+  const next={...tracks,[id]:{...prev,cliente,etapa,fornecedor,dataEnvio:envio,atualizadoEm:now,historico:[...(prev.historico||[]),h]}};
+  await supaSet(CLOUD,next);tracks=next;local();ready=true;renderDefeitos();msg.textContent='✓ Salvo para a equipe.';setTimeout(()=>closeModal('modalDefAndamento'),700);
+ }catch(e){msg.textContent='Não foi possível confirmar o salvamento. Seus campos foram mantidos; tente novamente.';console.warn('Acompanhamento de defeitos:',e);}finally{busy=false;document.getElementById('dt_save').disabled=false;}
+};
+window.baireDefHistorico=function(id){const d=defeitos.find(x=>String(x.id)===String(id));if(!d)return;const t=get(id);document.getElementById('dh_title').textContent=d.cliente+' — '+d.produto;const legacy=(d.historico||[]).map(h=>'<tr><td>'+esc(data(h.data))+'</td><td>'+esc(STATUS_LABEL[normalizarStatusDefeito(h.status)]||h.status)+'</td><td>'+esc(h.usuario||'Não registrado')+'</td><td>'+esc(h.obs||'')+'</td></tr>').join('');const hist=(t.historico||[]).map(h=>'<tr><td>'+esc(data(h.data))+'<br><small>Registrado: '+esc(data(h.registradoEm))+'</small></td><td>Cliente: '+esc(clientes[h.cliente]||h.cliente)+'<br>Processo: '+esc(etapas[h.etapa]||h.etapa)+'<br>Fornecedor: '+esc(h.fornecedor||'-')+(h.dataEnvio?'<br>Envio: '+esc(data(h.dataEnvio)):'')+'</td><td>'+esc(h.usuario)+'</td><td>'+esc(h.obs)+'</td></tr>').join('');document.getElementById('dh_body').innerHTML='<p><b>Registro anterior preservado:</b> '+esc(STATUS_LABEL[normalizarStatusDefeito(d.status)]||d.status)+'</p><h4>Histórico anterior</h4><table><thead><tr><th>Data</th><th>Status</th><th>Responsável</th><th>Observação</th></tr></thead><tbody>'+(legacy||'<tr><td colspan="4">Nenhum histórico anterior registrado.</td></tr>')+'</tbody></table><h4>Acompanhamento do processo</h4><table><thead><tr><th>Data</th><th>Andamento</th><th>Responsável</th><th>Observação</th></tr></thead><tbody>'+(hist||'<tr><td colspan="4">Ainda não informado. Confira o andamento real antes de atualizar.</td></tr>')+'</tbody></table>';openModal('modalDefHistorico');};
+window.baireDefImprimir=function(semCliente){const dados=obterDefeitosFiltrados();if(!dados.length){alert('Nenhum registro nos filtros selecionados.');return;}const w=window.open('','_blank');if(!w){alert('Permita a janela de impressão no navegador.');return;}const filtros=['filtroDefFornecedor','filtroDefStatus','filtroDefProcessoForn','filtroDefEtapa','filtroDefCliente'].filter(id=>val(id)).map(id=>document.getElementById(id).selectedOptions[0].textContent);if(val('filtroDefBusca'))filtros.push('Busca: '+val('filtroDefBusca'));if(val('filtroDefDataIni')||val('filtroDefDataFim'))filtros.push('Entrada: '+data(val('filtroDefDataIni'))+' até '+data(val('filtroDefDataFim')));const groups={};dados.forEach(d=>{const f=get(d.id).fornecedor||d.fornecedor||'Sem fornecedor';(groups[f]||(groups[f]=[])).push(d);});const html='<html lang="pt-BR"><head><meta charset="UTF-8"><title>Defeitos — Baire</title><style>@page{size:A4 landscape;margin:10mm}body{font:12px Arial;color:#111}table{border-collapse:collapse;width:100%;margin-bottom:20px}td,th{border:1px solid #bbb;padding:6px;text-align:left}tr{break-inside:avoid}thead{display:table-header-group}button{padding:8px}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Imprimir / salvar PDF</button><h2>Baire — '+(semCliente?'Relação para fornecedor':'Controle de defeitos e garantia')+'</h2><p>'+esc(new Date().toLocaleString('pt-BR'))+' · '+dados.length+' registro(s)</p><p>Filtros: '+esc(filtros.join(' · ')||'Todos os registros')+'</p>'+Object.entries(groups).map(([f,ds])=>'<h3>Fornecedor: '+esc(f)+'</h3><table><thead><tr><th>Entrada</th>'+(semCliente?'':'<th>Cliente / pedido</th>')+'<th>Produto / marca</th><th>Defeito</th><th>NF / compra</th><th>Registro anterior</th>'+(semCliente?'':'<th>Atendimento cliente</th>')+'<th>Etapa / envio</th></tr></thead><tbody>'+ds.map(d=>{const t=get(d.id);return '<tr><td>'+esc(data(d.data||d.dataAnalise))+'</td>'+(semCliente?'':'<td>'+esc(d.cliente)+'<br>Pedido: '+esc(d.pedVenda||'-')+'</td>')+'<td>'+esc(d.produto)+'<br>'+esc(d.marca)+'</td><td>'+esc(d.obs)+'</td><td>'+esc(d.nfCompra||'-')+'<br>'+esc(data(d.dataCompra))+'</td><td>'+esc(STATUS_LABEL[normalizarStatusDefeito(d.status)]||d.status)+'</td>'+(semCliente?'':'<td>'+esc(clientes[t.cliente]||clientes.nao_informado)+'</td>')+'<td>'+esc(etapas[t.etapa]||etapas.nao_informado)+'<br>Envio: '+esc(data(t.dataEnvio||d.dataEnvioFornecedor))+'</td></tr>';}).join('')+'</tbody></table>').join('')+'</body></html>';w.document.open();w.document.write(html);w.document.close();w.focus();};
+function init(){const search=document.querySelector('#page-defeitos .search-wrap');if(!search)return;
+ ['defStatusLote','defDataEnvioLote'].forEach(id=>{const el=document.getElementById(id);if(el)el.hidden=true;});search.querySelectorAll('button').forEach(b=>{if(/alterarStatusDefeitos|aplicarStatus/.test(b.getAttribute('onclick')||''))b.hidden=true;});
+ const controls=document.createElement('div');controls.style.cssText='display:flex;gap:8px;flex-wrap:wrap;width:100%;margin-top:8px';controls.innerHTML='<select id="filtroDefEtapa" onchange="renderDefeitos()">'+opts(etapas,'Todas as etapas do processo')+'</select><select id="filtroDefCliente" onchange="renderDefeitos()">'+opts(clientes,'Todos atendimentos ao cliente')+'</select><select id="filtroDefProcessoForn" onchange="renderDefeitos()"><option value="">Todos fornecedores do processo</option></select><button class="btn-secondary" onclick="baireDefRecarregar()">Atualizar acompanhamento</button><span id="defTrackCount"></span><p id="defTrackNotice" style="width:100%;margin:0;font-size:12px;color:#64748b">Os registros anteriores foram preservados. Confirme o andamento real dos casos antigos pelo botão Alterar andamento.</p>';search.appendChild(controls);
+ const modals=document.createElement('div');modals.innerHTML='<div class="modal-bg" id="modalDefAndamento"><div class="modal"><button class="modal-close" onclick="closeModal(\'modalDefAndamento\')">×</button><h3>Alterar andamento</h3><p id="dt_title"></p><input type="hidden" id="dt_id"><div class="form-grid"><div class="form-group"><label>Atendimento ao cliente</label><select id="dt_cliente">'+opts(clientes)+'</select></div><div class="form-group"><label>Etapa do processo com o fornecedor</label><select id="dt_etapa">'+opts(etapas)+'</select></div><div class="form-group"><label>Data do andamento</label><input type="date" id="dt_data"></div><div class="form-group"><label>Fornecedor do processo</label><input id="dt_forn" list="dt_fornecedores"></div><div class="form-group"><label>Data de envio ao fornecedor</label><input type="date" id="dt_envio"></div><div class="form-group"><label>Observação</label><textarea id="dt_obs" lang="pt-BR" spellcheck="true"></textarea></div></div><datalist id="dt_fornecedores">'+[...new Set(defeitos.map(d=>d.fornecedor).filter(Boolean))].map(f=>'<option value="'+esc(f)+'">').join('')+'</datalist><p>O registro anterior é preservado. Cada atualização entra no histórico com seu nome.</p><p id="dt_msg" role="status"></p><button class="btn-primary" id="dt_save" onclick="baireDefSalvarAndamento()">Salvar andamento</button></div></div><div class="modal-bg" id="modalDefHistorico"><div class="modal" style="max-width:950px"><button class="modal-close" onclick="closeModal(\'modalDefHistorico\')">×</button><h3>Histórico completo</h3><p id="dh_title"></p><div id="dh_body" style="overflow:auto;max-height:65vh"></div></div></div>';document.body.appendChild(modals);renderDefeitos();load();
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();
+
+</script>
 </body></html>
