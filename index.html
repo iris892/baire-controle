@@ -3672,16 +3672,32 @@ function baireHojeLocalISO(){
 const SUPA_URL = 'https://lguuqzvqeuaxqbsawblj.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxndXVxenZxZXVheHFic2F3YmxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxODQ4MTksImV4cCI6MjA5MTc2MDgxOX0.cDcjCTzdansXpOg2S9vEceSRP_WVpTUjj5jxKz2VWk8';
 
-async function supaGet(id) {
-  const r = await fetch(`${SUPA_URL}/rest/v1/dados?id=eq.${encodeURIComponent(id)}&select=conteudo`, {
-    headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` }
-  });
-  if (!r.ok) {
-    const msg = await r.text().catch(()=> '');
-    throw new Error(`Nuvem GET ${id}: HTTP ${r.status}${msg ? ' - '+msg.slice(0,180) : ''}`);
-  }
-  const data = await r.json();
-  return data && data.length > 0 ? data[0].conteudo : null;
+// Consultas limitadas e compartilhadas: uma rede lenta não bloqueia a navegação.
+const __baireGets = new Map();
+function supaGet(id) {
+  if (__baireGets.has(id)) return __baireGets.get(id);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  const request = (async () => {
+    try {
+      const r = await fetch(`${SUPA_URL}/rest/v1/dados?id=eq.${encodeURIComponent(id)}&select=conteudo`, {
+        headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` },
+        signal: controller.signal
+      });
+      if (!r.ok) throw new Error(`Nuvem GET ${id}: HTTP ${r.status}`);
+      const data = await r.json();
+      return data && data.length > 0 ? data[0].conteudo : null;
+    } finally {
+      clearTimeout(timer);
+      __baireGets.delete(id);
+    }
+  })();
+  __baireGets.set(id, request);
+  return request;
+}
+async function baireSincronizarSeAlterado(id, conteudo, recebido) {
+  if (__baireStableStringify(conteudo) === __baireStableStringify(recebido)) return true;
+  return supaSet(id, conteudo);
 }
 
 async function supaSetOriginal(id, conteudo) {
@@ -4065,7 +4081,13 @@ async function sincronizarManual() {
   }
 }
 
-async function carregarNuvem() {
+let __baireCargaEmAndamento = null;
+function carregarNuvem() {
+  if (__baireCargaEmAndamento) return __baireCargaEmAndamento;
+  __baireCargaEmAndamento = carregarNuvemDados().finally(() => { __baireCargaEmAndamento = null; });
+  return __baireCargaEmAndamento;
+}
+async function carregarNuvemDados() {
   // Se arquivo local (file://), não tenta sincronizar
   if (window.location.protocol === 'file:') {
     const indicator = document.getElementById('syncIndicator');
@@ -4075,16 +4097,12 @@ async function carregarNuvem() {
   const indicator = document.getElementById('syncIndicator');
   if (indicator) indicator.textContent = '⏳ Sincronizando...';
   try {
-    // Timeout de 5 segundos para não travar o sistema
-    const timeout = new Promise((_,reject) => setTimeout(()=>reject(new Error('timeout')), 5000));
-    const [nfsData, vendasData, defeitosData, rascunhoData, produtosData, orcHistData, orcPmData, orcNumData, cotacoesData, orcFuncData, nfsTombsData] = await Promise.race([
-      Promise.all([
+    // Cada consulta tem limite real de 20 segundos, com cancelamento.
+    const [nfsData, vendasData, defeitosData, rascunhoData, produtosData, orcHistData, orcPmData, orcNumData, cotacoesData, orcFuncData, nfsTombsData] = await Promise.all([
         supaGet('nfs'), supaGet('vendas'), supaGet('defeitos'), supaGet('rascunho'), supaGet('produtos_ca'),
         supaGet('orc_history'), supaGet('orc_pm'), supaGet('orc_num'), supaGet('cotacoesFornecedor'), supaGet('baire_orcamentos_funcionarios'),
         supaGet('nfs_excluidas_v2').catch(()=>[])
-      ]),
-      timeout.then(()=>{ throw new Error('timeout'); })
-    ]);
+      ]);
     if (produtosData && produtosData.length > 0) {
       PRODUTOS_CA.length = 0;
       produtosData.forEach(p => PRODUTOS_CA.push(p));
@@ -4120,10 +4138,10 @@ async function carregarNuvem() {
 
     // Publica imediatamente o conjunto consolidado para que o próximo computador
     // receba a mesma base.
-    await supaSet('nfs_excluidas_v2', tombsCarga);
-    await supaSet('nfs', nfs);
-    await supaSet('vendas', vendas);
-    await supaSet('defeitos', defeitos);
+    await baireSincronizarSeAlterado('nfs_excluidas_v2', tombsCarga, nfsTombsData);
+    await baireSincronizarSeAlterado('nfs', nfs, nfsData);
+    await baireSincronizarSeAlterado('vendas', vendas, vendasData);
+    await baireSincronizarSeAlterado('defeitos', defeitos, defeitosData);
 
     // Só carrega rascunho se não foi limpo intencionalmente
     const rascunhoFoiLimpo = localStorage.getItem('toner_rascunho_limpo') === '1';
@@ -4150,7 +4168,7 @@ async function carregarNuvem() {
     if (histMerge.length) {
       orcHistory = histMerge;
       localStorage.setItem('orc_history', JSON.stringify(orcHistory));
-      await supaSet('orc_history', orcHistory).catch(()=>{});
+      await baireSincronizarSeAlterado('orc_history', orcHistory, orcHistData).catch(()=>{});
     }
 
     const pmCloud = (orcPmData && typeof orcPmData === 'object' && !Array.isArray(orcPmData)) ? orcPmData : {};
@@ -4158,14 +4176,14 @@ async function carregarNuvem() {
     if (Object.keys(pmMerge).length) {
       if (typeof pmDados !== 'undefined') pmDados = pmMerge;
       localStorage.setItem('orc_pm', JSON.stringify(pmMerge));
-      await supaSet('orc_pm', pmMerge).catch(()=>{});
+      await baireSincronizarSeAlterado('orc_pm', pmMerge, orcPmData).catch(()=>{});
     }
 
     const maxHistNum = histMerge.length ? Math.max(...histMerge.map(h => parseInt(h.num,10)||0)) + 1 : 1;
     const numCloud = Number(orcNumData || 1) || 1;
     orcNum = Math.max(orcNumLocal || 1, numCloud || 1, maxHistNum || 1);
     localStorage.setItem('orc_num', String(orcNum));
-    await supaSet('orc_num', orcNum).catch(()=>{});
+    await baireSincronizarSeAlterado('orc_num', orcNum, orcNumData).catch(()=>{});
 
     // Sincroniza COTAÇÕES de todos os computadores (merge por id/data/produtos).
     try {
@@ -4186,7 +4204,7 @@ async function carregarNuvem() {
       const cotMerge = Array.from(mapCot.values()).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
       localStorage.setItem('baire_cotacoes_fornecedores', JSON.stringify(cotMerge));
       localStorage.setItem('cotacoesFornecedor', JSON.stringify(cotMerge));
-      await supaSet('cotacoesFornecedor', cotMerge).catch(()=>{});
+      await baireSincronizarSeAlterado('cotacoesFornecedor', cotMerge, cotacoesData).catch(()=>{});
       if (typeof window.baireRenderHistoricoCotacoes === 'function') setTimeout(window.baireRenderHistoricoCotacoes, 100);
     } catch(e) { console.warn('Falha ao sincronizar cotações:', e); }
 
@@ -4198,7 +4216,7 @@ async function carregarNuvem() {
       const ofCloud = Array.isArray(orcFuncData) ? orcFuncData : [];
       const ofMerge = baireMergeOrcamentosVendedores(ofLocal, ofCloud);
       localStorage.setItem('baire_orcamentos_funcionarios', JSON.stringify(ofMerge));
-      await supaSet('baire_orcamentos_funcionarios', ofMerge).catch(()=>{});
+      await baireSincronizarSeAlterado('baire_orcamentos_funcionarios', ofMerge, orcFuncData).catch(()=>{});
       if (typeof window.baireFuncRenderHistorico === 'function') setTimeout(window.baireFuncRenderHistorico, 100);
       if (typeof window.baireAprovRender === 'function') setTimeout(window.baireAprovRender, 150);
     } catch(e) { console.warn('Falha ao sincronizar cotações de vendas:', e); }
