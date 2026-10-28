@@ -10463,7 +10463,7 @@ function salvarOrcamentoTopoSeguro(){
   function current(){try{return JSON.parse(sessionStorage.getItem(SESSION_KEY)||'null');}catch(e){return null;}}
   function setCurrent(u){sessionStorage.setItem(SESSION_KEY, JSON.stringify(u));}
   function isAdmin(){const u=current(); return !!u && (u.perfil==='ADMIN' || (u.abas||[]).includes('usuarios'));}
-  function canPage(id){const u=current(); if(!u) return false; return (u.abas||[]).includes(id) || u.perfil==='ADMIN';}
+  function canPage(id){const u=current(); if(!u) return false; if(id==='bof-pending') return ['karol','verinha'].includes(lower(u.usuario)) || u.perfil==='ADMIN' || (u.abas||[]).some(a=>['vendas','aprovacoes','bof-pending'].includes(a)); return (u.abas||[]).includes(id) || u.perfil==='ADMIN';}
   window.baireLoginAtual=current;
   window.baireLoginPode=canPage;
   window.baireLoginSair=function(){sessionStorage.removeItem(SESSION_KEY); location.reload();};
@@ -10477,6 +10477,7 @@ function salvarOrcamentoTopoSeguro(){
     location.reload();
   };
   function tabPageId(tab){
+    if(tab.id==='bofQueueTab') return 'bof-pending';
     const tx=(tab.getAttribute('onclick')||'')+'';
     const m=tx.match(/showPage\(['\"]([^'\"]+)['\"]\)/); if(m) return m[1];
     if(tab.getAttribute('data-baire-cotacoes-tab')!==null) return 'cotacoes';
@@ -10579,6 +10580,7 @@ function salvarOrcamentoTopoSeguro(){
     window.showPage=function(id){ if(!canPage(id)){ alert('Usuário sem permissão para esta tela.'); const p=firstAllowed(); if(p&&p!==id) return window.showPage(p); return; } if(id==='usuarios'){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('page-usuarios')?.classList.add('active');document.querySelector('[data-baire-usuarios-tab]')?.classList.add('active');window.baireUserRender();return;} if(id==='aprovacoes'){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('page-aprovacoes')?.classList.add('active');document.querySelector('[data-baire-aprovacoes-tab]')?.classList.add('active');window.baireAprovRender();return;} return oldShow?oldShow(id):undefined; };
     const oldDecidir=window.baireFuncDecidir;
     window.baireFuncDecidir=function(id,decisao){ const cur=current(); let sel=document.getElementById('of-aprovador'); if(sel && cur?.nome){ let exists=[...sel.options].some(o=>o.value===cur.nome||o.textContent===cur.nome); if(!exists){const op=document.createElement('option');op.textContent=cur.nome;op.value=cur.nome;sel.appendChild(op);} sel.value=cur.nome; } const r=oldDecidir?oldDecidir(id,decisao):undefined; setTimeout(()=>{try{window.baireAprovRender();}catch(e){}},80); return r; };
+    window.BaireOrderForms?.mountQueue?.();
     aplicarPermissoes(); window.baireUserRender(); window.baireAprovRender();
     setTimeout(()=>{aplicarPermissoes();},500); setTimeout(()=>{aplicarPermissoes();},1500);
     const p=firstAllowed(); if(p && !document.querySelector('.page.active')) window.showPage(p);
